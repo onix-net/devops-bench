@@ -111,6 +111,8 @@ def run_cli_agent(bin_path, prompt, context):
     if "gemini" in bin_path:
         args.extend(["-o", "json", "-p", prompt])
         use_stdin = False
+    elif "openclaw" in bin_path:
+        return run_openclaw_agent(prompt, context)
         
     start_time = time.time()
     try:
