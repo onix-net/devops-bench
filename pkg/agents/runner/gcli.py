@@ -133,7 +133,7 @@ def run_cli_agent(agent_target, prompt, context, bench_use_mcp=True, system_inst
         args.extend(["-p", prompt])
         use_stdin = False
     elif "openclaw" in agent_target:
-        return run_openclaw_agent(prompt, context)
+        return run_openclaw_agent(prompt, context, agent_name="operator")
         
     start_time = time.time()
     

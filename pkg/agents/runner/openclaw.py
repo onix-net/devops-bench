@@ -7,16 +7,16 @@ from deepeval.tracing import observe
 
 
 @observe()
-def run_openclaw_agent(prompt, context=None):
+def run_openclaw_agent(prompt, context=None, agent_name="main"):
     """Runs OpenClaw agent on GCE VM via SSH."""
     ssh_user = os.environ.get("OPENCLAW_SSH_USER", "simrankaurk_google_com")
     vm_host = os.environ.get("OPENCLAW_VM_HOST", "nic0.claw-ubuntu.us-central1-a.c.simrankaurk-gke-dev.internal.gcpnode.com")
     ssh_key = os.environ.get("OPENCLAW_SSH_KEY", "/usr/local/google/home/simrankaurk/.ssh/google_compute_engine")
 
-    # We use --local and --agent main as discovered by the user
+    # We use --local and --agent as discovered by the user
     # We also use single quotes for the prompt, assuming it doesn't contain single quotes.
     # For safety, we should escape single quotes if possible, but let's keep it simple first.
-    remote_command = f"export NVM_DIR=\"$HOME/.nvm\" && [ -s \"$NVM_DIR/nvm.sh\" ] && source \"$NVM_DIR/nvm.sh\" && ~/bin/openclaw --log-level debug agent --local --agent main -m '{prompt}'"
+    remote_command = f"export NVM_DIR=\"$HOME/.nvm\" && [ -s \"$NVM_DIR/nvm.sh\" ] && source \"$NVM_DIR/nvm.sh\" && ~/bin/oc --log-level debug agent --local --agent {agent_name} -m '{prompt}'"
 
     ssh_cmd = [
         "ssh",
