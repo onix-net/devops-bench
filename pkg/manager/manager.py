@@ -39,10 +39,6 @@ class ScenarioManager:
         
         try:
             self._inject_chaos_with_delay(trigger, action)
-            
-            # Collect real performance metrics from the GKE cluster
-            self._collect_perf_metrics()
-            
             self.result_holder["chaos_report"]["status"] = "success"
         except Exception as e:
             log(f"[ScenarioManager] Error running scenario: {e}")
@@ -93,11 +89,7 @@ class ScenarioManager:
                 self.pf_process.wait()
                 log("[ScenarioManager] Port-forward terminated.")
 
-    def _collect_perf_metrics(self):
-        """Queries GKE cluster metrics. Kept empty for this PR scope."""
-        log("[ScenarioManager] Telemetry collection skipped (focusing on core integration).")
-        self.result_holder["perf_report"] = {}
-        return
+
 
 
     def get_reports(self):
