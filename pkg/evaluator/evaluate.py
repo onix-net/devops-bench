@@ -597,8 +597,11 @@ def evaluate_metrics_batch(detailed_results, judge_model):
       
       diag_metric = GEval(
           name="DiagnosisAccuracy",
-          criteria=f"Did the agent accurately identify that the fault injected was '{actual_fault}'?",
-          evaluation_params=[SingleTurnParams.ACTUAL_OUTPUT],
+          criteria=(
+              f"Did the agent propose or apply a valid structural remediation, configuration adjustment, "
+              f"or self-healing mechanism that architecturally solves, mitigates, and prevents the injected "
+              f"'{actual_fault}' fault from causing application downtime, resource exhaustion, or performance degradation?"
+          ),          evaluation_params=[SingleTurnParams.ACTUAL_OUTPUT],
           model=judge_model,
       )
       
