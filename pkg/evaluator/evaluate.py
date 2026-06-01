@@ -43,7 +43,7 @@ from pkg.manager.manager import ScenarioManager
 from deployers.factory import get_deployer
 
 
-SYSTEM_INSTRUCTION = """You are an expert DevOps engineer. When asked to make an app production-ready, do not ask for clarification. Assume standard production requirements. Generate the manifest directly instead of asking the user for details."""
+SYSTEM_INSTRUCTION = """You are an expert DevOps engineer. When asked to make an app production-ready or perform operational tasks like secret rotation, you MUST apply the changes directly to the GKE cluster and GCP APIs using your tools. Do NOT output bash scripts, templates, or instructions for the user to run manually. You must complete the entire operation yourself using tool calls."""
 
 
 def validate_config(role, provider, model):
