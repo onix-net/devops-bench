@@ -4,6 +4,14 @@ from deployers.base import Deployer
 from deployers.gcp.gcp_deployer import GCPDeployer
 from deployers.terraform.tf_deployer import TerraformDeployer
 
+from deployers.gcp.variables import resolve_variables as resolve_gcp_vars
+from deployers.kind.variables import resolve_variables as resolve_kind_vars
+
+PROVIDER_RESOLVERS = {
+    "gcp": resolve_gcp_vars,
+    "kind": resolve_kind_vars,
+}
+
 def get_deployer(
     infra_config: Dict[str, Any],
     global_project_id: str,
@@ -26,18 +34,13 @@ def get_deployer(
         stack = infra_config.get("stack") or "prebuilt/kind"
         variables = infra_config.get("variables", {})
 
-        if stack == "prebuilt/kind":
-            cluster_name = global_cluster_name or "devops-bench-kind"
-            variables.setdefault("cluster_name", cluster_name)
-            variables.setdefault("location", "local")
-            import pathlib
-            kubeconfig_path = os.environ.get("KUBECONFIG") or str(pathlib.Path("~/.kube/config").expanduser().resolve())
-            variables.setdefault("kubeconfig_path", kubeconfig_path)
-        else:
-            # Ensure critical variables are present, defaulting to globals
-            variables.setdefault("project_id", global_project_id)
-            variables.setdefault("cluster_name", global_cluster_name)
-            variables.setdefault("location", location)
+        # Deduce provider from stack name or CLOUD_PROVIDER env var
+        provider = cloud_provider or ("kind" if "kind" in stack else "gcp")
+
+        # Dynamically resolve variables based on the cloud provider
+        resolver = PROVIDER_RESOLVERS.get(provider)
+        if resolver:
+            variables = resolver(stack, variables, global_project_id, global_cluster_name, location)
 
         return TerraformDeployer(tf_dir=stack, variables=variables)
 
@@ -47,4 +50,3 @@ def get_deployer(
         location=location,
         cluster_name=global_cluster_name
     )
-
