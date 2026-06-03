@@ -56,7 +56,15 @@ provider "helm" {
 }
 
 # 3. GCP Secret Manager Setup
+resource "null_resource" "delete_secret_if_exists" {
+  provisioner "local-exec" {
+    command = "gcloud secrets delete db-credentials --project=${var.project_id} --quiet || true"
+  }
+}
+
 resource "google_secret_manager_secret" "db_credentials" {
+  depends_on = [null_resource.delete_secret_if_exists]
+
   secret_id = "db-credentials"
   project   = var.project_id
   replication {
@@ -193,6 +201,20 @@ resource "google_compute_firewall" "allow_iap_ssh" {
 
   source_ranges = ["35.235.240.0/20"]
 }
+
+# 11. Grant permissions to OpenClaw VM Service Account
+resource "google_project_iam_member" "openclaw_vm_container_admin" {
+  project = var.project_id
+  role    = "roles/container.admin"
+  member  = "serviceAccount:openclaw-vm-sa@${var.project_id}.iam.gserviceaccount.com"
+}
+
+resource "google_project_iam_member" "openclaw_vm_secret_admin" {
+  project = var.project_id
+  role    = "roles/secretmanager.admin"
+  member  = "serviceAccount:openclaw-vm-sa@${var.project_id}.iam.gserviceaccount.com"
+}
+
 
 output "cluster_name" {
   value = module.gke.cluster_name

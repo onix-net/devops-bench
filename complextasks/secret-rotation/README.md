@@ -1,35 +1,70 @@
-## Setup
+# Secret Rotation Task
 
-### 1. Grant GCP IAM Permissions to Agent VM
-For the agent to successfully rotate secrets via GCP Secret Manager, the agent's runner VM service account (e.g., `openclaw-vm-sa`) must have Secret Manager Admin permissions:
+This task evaluates the agent's ability to rotate a compromised Google Secret Manager secret consumed by a deployment in a GKE cluster with zero downtime, and then cleanly revoke/destroy the old version of the secret.
 
-```bash
-# Set your target project ID
-export GCP_PROJECT_ID="your-gcp-project-id"
-export AGENT_SERVICE_ACCOUNT="openclaw-vm-sa@${GCP_PROJECT_ID}.iam.gserviceaccount.com"
+## Setup & Running the Benchmark
 
-gcloud projects add-iam-policy-binding "${GCP_PROJECT_ID}" \
-    --member="serviceAccount:${AGENT_SERVICE_ACCOUNT}" \
-    --role="roles/secretmanager.admin" \
-    --condition=None
-```
+The infrastructure for this task (including GKE setup, workload identity, external-secrets operator, permissions for the runner VM service account, and deploying the target application) is automatically provisioned and managed via Terraform when you run the evaluator.
 
-### 2. Prepare Cluster Environment
-Run the automated setup script to deploy all GKE manifests and initialize Secret Manager:
+### 1. Export Environment Variables
+Export the target GCP environment, agent, and judge configurations:
 
 ```bash
-GCP_PROJECT_ID="${GCP_PROJECT_ID}" \
-GKE_CLUSTER_NAME="${GKE_CLUSTER_NAME}" \
-GCP_LOCATION="${GCP_LOCATION}" \
-NAMESPACE="${NAMESPACE}" \
-./complextasks/secret-rotation/setup/setup.sh
+# GCP Environment
+export GCP_PROJECT_ID="your-project-id"
+export GKE_CLUSTER_NAME="your-cluster-name"
+export GCP_LOCATION="us-central1"
+export NAMESPACE="secret-rotation-run-1"
+
+# Agent Config
+export BENCH_AGENT_TYPE="cli"       # 'cli' or 'api'
+export AGENT_TARGET="oc"            # The agent target binary/orchestrator
+export AGENT_PROVIDER="google"      # LLM provider for the agent
+export AGENT_MODEL="gemini-3.1-pro-preview"
+export AGENT_API_KEY="your-gemini-api-key"
+
+# Judge Config
+export JUDGE_PROVIDER="google"
+export JUDGE_MODEL="gemini-3.1-pro-preview"
+export JUDGE_API_KEY="your-gemini-api-key"
+
+# SSH Config (required by openclaw for VM interactions)
+export OPENCLAW_SSH_USER="your_ssh_username"
+
+# Credentials config (ADC path)
+export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/application_default_credentials.json"
 ```
 
-## Evaluation
+### 2. Run the Evaluator
 
-Export the required env vars and run the eval:
-
+#### Option A: Running Locally (via Python)
+Run the evaluator script directly:
 ```bash
-.venv/bin/python3 pkg/evaluator/evaluate.py complextasks/secret-rotation/task.yaml
+python3 pkg/evaluator/evaluate.py complextasks/secret-rotation/task.yaml
 ```
 
+#### Option B: Running inside Docker
+To run within the container (after building it via `docker build -t devops-bench:latest .`):
+```bash
+docker run -it \
+  -v ~/.config/gcloud:/root/.config/gcloud \
+  -v ~/.ssh:/root/.ssh \
+  -v $(pwd)/results:/app/results \
+  -e CLOUD_PROVIDER="gcp" \
+  -e GCP_PROJECT_ID="${GCP_PROJECT_ID}" \
+  -e GKE_CLUSTER_NAME="${GKE_CLUSTER_NAME}" \
+  -e GCP_LOCATION="${GCP_LOCATION}" \
+  -e NAMESPACE="${NAMESPACE}" \
+  -e BENCH_TASK_FILE="complextasks/secret-rotation/task.yaml" \
+  -e BENCH_AGENT_TYPE="${BENCH_AGENT_TYPE}" \
+  -e AGENT_TARGET="${AGENT_TARGET}" \
+  -e AGENT_PROVIDER="${AGENT_PROVIDER}" \
+  -e AGENT_MODEL="${AGENT_MODEL}" \
+  -e AGENT_API_KEY="${AGENT_API_KEY}" \
+  -e JUDGE_PROVIDER="${JUDGE_PROVIDER}" \
+  -e JUDGE_MODEL="${JUDGE_MODEL}" \
+  -e JUDGE_API_KEY="${JUDGE_API_KEY}" \
+  -e OPENCLAW_SSH_USER="${OPENCLAW_SSH_USER}" \
+  -e GOOGLE_APPLICATION_CREDENTIALS=/root/.config/gcloud/application_default_credentials.json \
+  devops-bench:latest
+```

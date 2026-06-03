@@ -857,6 +857,8 @@ def main():
 
         except Exception as e:
             print(f"Critical error during task {item['name']}: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
             global_no_teardown = os.environ.get("BENCH_NO_TEARDOWN", "false").lower() == "true"
             if infra_config.get("teardown", True) and not global_no_teardown:
@@ -866,29 +868,29 @@ def main():
                 except Exception as teardown_err:
                     print(f"Teardown failed (potential resource leak): {teardown_err}")
 
-
-        expected_output_raw = item.get("expected_output", "")
-        detailed_results[-1]["expected_output"] = replace_placeholders(
-            expected_output_raw, project_id, cluster_name
-        )
-        detailed_results[-1]["name"] = item["name"]
-        detailed_results[-1]["retrieval_context"] = item.get("retrieval_context", [])
-        detailed_results[-1]["chaos_spec"] = item.get("chaos_spec")
-        detailed_results[-1]["verification_spec"] = item.get("verification_spec")
-
-        chaos_report = {}
-        perf_report = {}
-        if scenario_manager:
-            print(
-                "[ScenarioManager] Waiting for background metrics collection to complete...",
-                flush=True,
+        if detailed_results:
+            expected_output_raw = item.get("expected_output", "")
+            detailed_results[-1]["expected_output"] = replace_placeholders(
+                expected_output_raw, project_id, cluster_name
             )
-            t.join(timeout=90)
-            chaos_report, perf_report = scenario_manager.get_reports()
+            detailed_results[-1]["name"] = item["name"]
+            detailed_results[-1]["retrieval_context"] = item.get("retrieval_context", [])
+            detailed_results[-1]["chaos_spec"] = item.get("chaos_spec")
+            detailed_results[-1]["verification_spec"] = item.get("verification_spec")
 
-        detailed_results[-1]["chaos_report"] = chaos_report
-        detailed_results[-1]["perf_report"] = perf_report
-        detailed_results[-1]["documentation"] = item.get("documentation", [])
+            chaos_report = {}
+            perf_report = {}
+            if scenario_manager:
+                print(
+                    "[ScenarioManager] Waiting for background metrics collection to complete...",
+                    flush=True,
+                )
+                t.join(timeout=90)
+                chaos_report, perf_report = scenario_manager.get_reports()
+
+            detailed_results[-1]["chaos_report"] = chaos_report
+            detailed_results[-1]["perf_report"] = perf_report
+            detailed_results[-1]["documentation"] = item.get("documentation", [])
 
     # Save tasks execution outputs immediately
     with open(os.path.join(run_dir, "results.json"), "w") as f:
