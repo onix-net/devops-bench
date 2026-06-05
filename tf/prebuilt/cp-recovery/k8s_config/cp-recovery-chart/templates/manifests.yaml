@@ -2,11 +2,11 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: cp-recovery-setup-admin
-  namespace: {{NAMESPACE}}
+  namespace: {{ .Values.namespace }}
 subjects:
 - kind: ServiceAccount
   name: cp-recovery-setup-sa
-  namespace: {{NAMESPACE}}
+  namespace: {{ .Values.namespace }}
 roleRef:
   kind: ClusterRole
   name: cluster-admin
@@ -16,7 +16,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: control-plane-config
-  namespace: {{NAMESPACE}}
+  namespace: {{ .Values.namespace }}
 data:
   block-mutating-requests: "false"
 ---
@@ -24,7 +24,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: control-plane-status
-  namespace: {{NAMESPACE}}
+  namespace: {{ .Values.namespace }}
 data:
   status: "Healthy"
 ---
@@ -32,7 +32,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: gitops-state
-  namespace: {{NAMESPACE}}
+  namespace: {{ .Values.namespace }}
 data:
   workloads: |
     - name: workload-1
@@ -46,16 +46,16 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: apiserver-script
-  namespace: {{NAMESPACE}}
+  namespace: {{ .Values.namespace }}
 data:
   apiserver.py: |
-    {{APISERVER_PYTHON_CODE}}
+{{ .Files.Get "files/apiserver.py" | indent 4 }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: etcd-headless
-  namespace: {{NAMESPACE}}
+  namespace: {{ .Values.namespace }}
   labels:
     app: etcd
 spec:
@@ -74,7 +74,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: etcd
-  namespace: {{NAMESPACE}}
+  namespace: {{ .Values.namespace }}
 spec:
   serviceName: etcd-headless
   replicas: 3
@@ -131,7 +131,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: mock-apiserver
-  namespace: {{NAMESPACE}}
+  namespace: {{ .Values.namespace }}
 spec:
   replicas: 1
   selector:
@@ -170,7 +170,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: mock-apiserver
-  namespace: {{NAMESPACE}}
+  namespace: {{ .Values.namespace }}
 spec:
   ports:
   - port: 8080

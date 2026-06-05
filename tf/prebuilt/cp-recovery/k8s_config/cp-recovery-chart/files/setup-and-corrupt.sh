@@ -37,12 +37,12 @@ echo "Calculating SHA256 checksum..."
 sha256sum /tmp/etcd-backup.db | awk '{print $1}' > /tmp/etcd-backup.sha256
 echo "Checksum is: $(cat /tmp/etcd-backup.sha256)"
 
-echo "Uploading backup and checksum to GCS bucket: gs://{{GCS_BUCKET_NAME}} ..."
-gsutil cp /tmp/etcd-backup.db gs://{{GCS_BUCKET_NAME}}/etcd-backup.db
-gsutil cp /tmp/etcd-backup.sha256 gs://{{GCS_BUCKET_NAME}}/etcd-backup.sha256
+echo "Uploading backup and checksum to GCS bucket: gs://${GCS_BUCKET_NAME} ..."
+gsutil cp /tmp/etcd-backup.db gs://${GCS_BUCKET_NAME}/etcd-backup.db
+gsutil cp /tmp/etcd-backup.sha256 gs://${GCS_BUCKET_NAME}/etcd-backup.sha256
 
 echo "Verifying upload..."
-gsutil ls gs://{{GCS_BUCKET_NAME}}/
+gsutil ls gs://${GCS_BUCKET_NAME}/
 
 echo "Creating workload-3 (after backup, before corruption)..."
 curl -sf -X POST -H "Content-Type: application/json" -d '{"name": "workload-3", "image": "memcached:latest"}' http://mock-apiserver:8080/api/v1/workloads
