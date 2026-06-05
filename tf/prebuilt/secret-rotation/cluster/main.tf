@@ -34,7 +34,7 @@ resource "google_secret_manager_secret_version" "db_credentials_v1" {
 
 # 4. GCP IAM & GSA Configuration
 resource "google_service_account" "secret_rotation_sa" {
-  account_id   = "secret-rotation-sa"
+  account_id   = "sa-${var.namespace}"
   display_name = "GSA for GKE ExternalSecrets Secret Manager access"
   project      = var.project_id
 }
