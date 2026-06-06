@@ -31,3 +31,9 @@ variable "enable_workload_identity" {
   type        = bool
   default     = false
 }
+
+variable "kubernetes_version" {
+  description = "The Kubernetes version for the GKE cluster"
+  type        = string
+  default     = null
+}

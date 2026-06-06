@@ -51,11 +51,11 @@ provider "helm" {
 
 # 3. Kubernetes resources configuration
 module "k8s_config" {
-  source                   = "./k8s_config"
-  project_id               = var.project_id
-  namespace                = var.namespace
-  cp_recovery_sa_email     = module.cluster.cp_recovery_sa_email
-  etcd_backup_bucket       = module.cluster.etcd_backup_bucket
+  source               = "./k8s_config"
+  project_id           = var.project_id
+  namespace            = var.namespace
+  cp_recovery_sa_email = module.cluster.cp_recovery_sa_email
+  etcd_backup_bucket   = module.cluster.etcd_backup_bucket
 }
 
 output "cluster_name" {
