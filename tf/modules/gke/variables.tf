@@ -37,3 +37,15 @@ variable "kubernetes_version" {
   type        = string
   default     = null
 }
+
+variable "agent_service_account" {
+  description = "The service account email of the agent"
+  type        = string
+  default     = ""
+}
+
+variable "enable_iap_ssh" {
+  description = "Enable IAP SSH firewall rule for the cluster"
+  type        = bool
+  default     = false
+}
