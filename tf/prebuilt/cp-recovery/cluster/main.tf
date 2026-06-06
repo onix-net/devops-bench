@@ -14,6 +14,8 @@ module "gke" {
   location     = var.location
   node_count   = var.node_count
   machine_type = var.machine_type
+  agent_service_account = "openclaw-vm-sa@${var.project_id}.iam.gserviceaccount.com"
+  enable_iap_ssh        = true
 }
 
 resource "google_storage_bucket" "etcd_backup" {
@@ -58,8 +60,4 @@ resource "google_service_account_iam_member" "setup_workload_identity" {
   member             = "serviceAccount:${var.project_id}.svc.id.goog[${var.namespace}/cp-recovery-setup-sa]"
 }
 
-resource "google_project_iam_member" "openclaw_vm_container_admin" {
-  project = var.project_id
-  role    = "roles/container.admin"
-  member  = "serviceAccount:openclaw-vm-sa@${var.project_id}.iam.gserviceaccount.com"
-}
+
