@@ -14,13 +14,9 @@ module "gke" {
   location           = var.location
   node_count         = 1
   machine_type       = "e2-standard-4"
-  kubernetes_version = "1.33" # This will pick the default 1.33.x version
-}
-
-resource "google_project_iam_member" "openclaw_vm_container_admin" {
-  project = var.project_id
-  role    = "roles/container.admin"
-  member  = "serviceAccount:openclaw-vm-sa@${var.project_id}.iam.gserviceaccount.com"
+  kubernetes_version    = "1.33" # This will pick the default 1.33.x version
+  agent_service_account = "openclaw-vm-sa@${var.project_id}.iam.gserviceaccount.com"
+  enable_iap_ssh        = true
 }
 
 resource "google_project_iam_member" "openclaw_vm_source_admin" {
