@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import shlex
 import subprocess
 import time
 import getpass
@@ -139,10 +140,13 @@ def run_openclaw_agent_local(prompt, context=None, agent_name="operator"):
     sessions_glob = os.path.expanduser(f"~/.openclaw/agents/{agent_name}/sessions")
 
     # Mirror the remote command: clear prior sessions, load nvm, run the agent.
+    # shlex.quote everything interpolated into the shell string — prompts contain
+    # single quotes and newlines, which would otherwise break shell parsing.
     local_command = (
-        f"rm -rf {sessions_glob}/* 2>/dev/null; "
-        "export NVM_DIR=\"$HOME/.nvm\" && [ -s \"$NVM_DIR/nvm.sh\" ] && . \"$NVM_DIR/nvm.sh\"; "
-        f"{oc_bin} --log-level debug agent --local --agent {agent_name} -m '{prompt}'"
+        f"rm -rf {shlex.quote(sessions_glob)}/* 2>/dev/null; "
+        "export NVM_DIR=\"$HOME/.nvm\"; [ -s \"$NVM_DIR/nvm.sh\" ] && . \"$NVM_DIR/nvm.sh\"; "
+        f"{shlex.quote(oc_bin)} --log-level debug agent --local "
+        f"--agent {shlex.quote(agent_name)} -m {shlex.quote(prompt)}"
     )
 
     start_time = time.time()
