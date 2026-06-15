@@ -26,66 +26,123 @@ against the desired GitOps state, and produce an incident report.
 ## Setup & Running the Benchmark
 
 Because kind runs the cluster as local Docker containers, the eval, the kind cluster, and the
-agent must all run on the **same host**. The simplest way is to run everything directly on the
-runner VM.
+agent must all run on the **same host**. The simplest setup is to run everything directly on
+the runner VM (e.g. the OpenClaw GCE VM).
 
-### 1. Prepare the host (run the eval on the runner VM)
+### Host requirements
 
-SSH into the runner VM, clone this repo, and make sure these are installed and on `PATH`:
+- **≥ 4 vCPU, ≥ 8 GB RAM** (a 4-node kind cluster is heavy; tested on 4 vCPU / 15 GB).
+- **≥ 50 GB disk.** The default boot disk is often too small — a running 4-node cluster plus
+  the `kindest/node` image needs several GB free. On GCE you can grow the disk live:
+  ```bash
+  # from Cloud Shell / a machine with working gcloud:
+  gcloud compute disks resize <VM_NAME> --size 50GB --zone <ZONE>
+  # then on the VM:
+  sudo growpart /dev/sda 1 && sudo resize2fs /dev/sda1 && df -h /
+  ```
+- **Python ≥ 3.10** (the `deepeval` dependency requires it).
+- Docker (running), and the OpenClaw `oc` binary at `~/bin/oc` (override with `OPENCLAW_BIN`).
 
-- Docker (running)
-- [`kind`](https://kind.sigs.k8s.io/docs/user/quick-start/#installation)
-- `kubectl`
-- `tofu` (OpenTofu)
-- the `oc` (OpenClaw) agent binary at `~/bin/oc` (override with `OPENCLAW_BIN`)
-
-> The VM needs enough CPU/RAM/disk for a 4-node kind cluster (3 control-plane + 1 worker).
-
-### 2. Export Environment Variables
+### 1. Install prerequisites (one-time)
 
 ```bash
-# Cluster / namespace. CLUSTER_NAME becomes the kind cluster name.
-export GKE_CLUSTER_NAME="cp-recovery-kind"     # used as the kind cluster name
-export NAMESPACE="cp-recovery"
-# Required by the evaluator for prompt substitution / Vertex judge. When using API
-# keys (below) this can be any placeholder value.
-export GCP_PROJECT_ID="local-kind"
+# kind, kubectl, tofu, docker
+curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64 && chmod +x kind && sudo mv kind /usr/local/bin/
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+sudo apt-get update && sudo apt-get install -y unzip python3-venv
+curl -fsSL https://get.opentofu.org/install-opentofu.sh -o /tmp/it.sh && sudo bash /tmp/it.sh --install-method deb
+curl -fsSL https://get.docker.com | sh && sudo usermod -aG docker "$USER"   # then log out/in so `docker ps` works without sudo
 
-# Run the OpenClaw agent locally (no SSH to a GCE VM).
+# verify
+for t in docker kind kubectl tofu; do command -v $t >/dev/null && echo "have $t" || echo "MISSING $t"; done
+```
+
+### 2. Raise inotify limits (one-time, required)
+
+Multi-node kind exhausts the default inotify limits, which makes the **worker node fail to
+`kubeadm join`** (`failed to join node with kubeadm … exit status 1`). Bump them:
+
+```bash
+echo -e "fs.inotify.max_user_watches=524288\nfs.inotify.max_user_instances=512" | sudo tee /etc/sysctl.d/99-kind.conf
+sudo sysctl --system
+```
+
+### 3. Python environment
+
+```bash
+cd ~/devops-bench
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### 4. Configure environment variables
+
+```bash
+export GKE_CLUSTER_NAME="cp-recovery-kind"   # used as the kind cluster name
+export NAMESPACE="cp-recovery"               # MUST match the stack's namespace
+export GCP_PROJECT_ID="local-kind"           # placeholder; only used for prompt/Vertex judge
+
+# Run the OpenClaw agent locally (no SSH to a remote VM)
 export OPENCLAW_LOCAL="true"
 
-# Agent Config
+# Agent config
 export BENCH_AGENT_TYPE="cli"
 export AGENT_TARGET="oc"
 export AGENT_PROVIDER="google"
 export AGENT_MODEL="gemini-3.1-pro-preview"
-export AGENT_API_KEY="your-gemini-api-key"
+export AGENT_API_KEY="<your-gemini-key>"
 
-# Judge Config
+# Judge config
 export JUDGE_PROVIDER="google"
 export JUDGE_MODEL="gemini-3.1-pro-preview"
-export JUDGE_API_KEY="your-gemini-api-key"
+export JUDGE_API_KEY="<your-gemini-key>"
 ```
 
-### 3. Run the Evaluator
+> Tip: drop the `export`s into a local `env.sh` (git-ignored — it holds API keys) so future
+> runs are just `source .venv/bin/activate && source env.sh`.
+
+### 5. Run the evaluator
 
 ```bash
-python3 pkg/evaluator/evaluate.py complextasks/cp-recovery/task.yaml
+python pkg/evaluator/evaluate.py complextasks/cp-recovery/task.yaml
 ```
 
+The harness provisions the cluster (+ corruption), runs the local `oc` agent against it,
+judges the result, and tears everything down. Results land in `results/run_<timestamp>/`:
+- `results.json` — per-check scores + the agent's full trajectory.
+- `generated_files/incident-report.md` — the report the agent wrote.
+
 > [!TIP]
-> **Saving time on subsequent runs:** export `BENCH_NO_TEARDOWN="true"` to keep the kind
-> cluster between runs. To re-run cleanly, tear down and recreate with a fresh namespace:
-> `tofu -chdir=tf/prebuilt/cp-recovery-kind destroy` (or `kind delete cluster --name "${GKE_CLUSTER_NAME}"`).
+> To iterate without re-creating the cluster each run, `export BENCH_NO_TEARDOWN="true"`.
+> Delete it manually when done: `kind delete cluster --name cp-recovery-kind`.
 
 ## Verifying the environment manually
 
-After provisioning (or `tofu -chdir=tf/prebuilt/cp-recovery-kind apply`):
+You can provision the stack by hand and inspect the degraded state before handing it to the agent:
 
 ```bash
-kubectl get nodes                                   # 3 control-plane + 1 worker
-kubectl -n kube-system get pods -l component=etcd   # one etcd-* CrashLoopBackOff
-kubectl get deploy -n "${NAMESPACE}"                # workload-1, workload-2 (no workload-3)
-kubectl get pvc -n "${NAMESPACE}" etcd-backup-pvc   # Bound; holds etcd-backup.db + .sha256
+cd tf/prebuilt/cp-recovery-kind
+tofu init && tofu apply -auto-approve -var cluster_name=cp-recovery-kind -var namespace=cp-recovery
+export KUBECONFIG=~/.kube/config
+
+kubectl get nodes                                    # 3 control-plane + 1 worker, Ready
+kubectl -n kube-system get pods -l component=etcd    # one etcd-* CrashLoopBackOff
 kubectl get ns                                       # still works -> API server up (quorum held)
+kubectl get deploy -n cp-recovery                    # workload-1, workload-2 (no workload-3)
+kubectl get pvc -n cp-recovery etcd-backup-pvc       # Bound
+docker exec cp-recovery-kind-worker ls -l /backup    # etcd-backup.db + etcd-backup.sha256
+
+tofu destroy -auto-approve -var cluster_name=cp-recovery-kind -var namespace=cp-recovery
 ```
+
+## Troubleshooting
+
+| Symptom | Cause / Fix |
+| --- | --- |
+| `failed to join node with kubeadm … exit status 1` | inotify limits — apply step 2. |
+| `Error: … no space left on device` (cluster create fails) | Disk too small — grow it (see Host requirements). |
+| `TypeError: unsupported operand type(s) for \|: …` on import | Python < 3.10 — use a 3.10+ venv. |
+| `No such file or directory: 'tofu'` / `kind` / `docker` | Missing prerequisite — install step 1. |
+| `ModuleNotFoundError: No module named 'deepeval'` | venv not active / deps not installed — step 3. |
