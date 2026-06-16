@@ -165,6 +165,39 @@ docker run -it \
   devops-bench:latest
 ```
 
+##### CLI agent auth options
+
+The CLI agent (gemini) supports two auth modes. `AGENT_API_KEY` takes precedence: if it is set, the agent uses the Gemini API (AI Studio). If it is omitted, the agent falls back to Application Default Credentials (ADC) via Vertex AI.
+
+**API key (default in the example above):** set `AGENT_API_KEY` to your AI Studio key.
+
+**ADC via Vertex AI:** omit `AGENT_API_KEY` and set `GCP_PROJECT_ID`. The agent will call the gemini CLI against Vertex AI using the mounted gcloud config (`-v ~/.config/gcloud:/root/.config/gcloud`). You can also set `GCP_VERTEX_LOCATION` to override the region (default: `us-central1`). Requires the Vertex AI API to be enabled on the project:
+
+```bash
+gcloud services enable aiplatform.googleapis.com
+```
+
+Example run using ADC (no `AGENT_API_KEY`):
+
+```bash
+docker run -it \
+  -v ~/.config/gcloud:/root/.config/gcloud \
+  -v $(pwd)/results:/app/results \
+  -e CLOUD_PROVIDER="gcp" \
+  -e GCP_PROJECT_ID="<YOUR_PROJECT_ID>" \
+  -e GKE_CLUSTER_NAME="<YOUR_CLUSTER_NAME>" \
+  -e BENCH_TASK_FILE="tasks/create-deployment/task.yaml" \
+  -e BENCH_AGENT_TYPE="cli" \
+  -e AGENT_TARGET="gemini" \
+  -e AGENT_MODEL="gemini-3.1-pro-preview" \
+  -e JUDGE_PROVIDER="google" \
+  -e JUDGE_MODEL="gemini-3.1-pro-preview" \
+  -e JUDGE_API_KEY="<YOUR_GEMINI_API_KEY>" \
+  devops-bench:latest
+```
+
+The judge supports the same pattern: omit `JUDGE_API_KEY` to have it use ADC instead of an API key.
+
 #### Flag Descriptions
 
 | Flag | Description |

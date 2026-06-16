@@ -103,6 +103,31 @@ def extract_trajectory_from_session(session_id: str) -> dict:
     }
 
 
+def _apply_gemini_auth_env(env):
+    """Wire benchmark auth vars into the environment passed to the gemini CLI.
+
+    Precedence mirrors the API-mode adapters in llm_adapters.py:
+      1. Explicit API key (AGENT_API_KEY) -> AI Studio / Gemini API.
+      2. GCP_PROJECT_ID set -> Vertex AI with Application Default Credentials.
+      3. Otherwise leave whatever auth is already present in the environment.
+
+    The gemini CLI ignores ADC when GOOGLE_API_KEY/GEMINI_API_KEY are set, so
+    those are cleared on the Vertex path.
+    """
+    if env.get("AGENT_API_KEY"):
+        env["GOOGLE_API_KEY"] = env["AGENT_API_KEY"]
+        env["GEMINI_API_KEY"] = env["AGENT_API_KEY"]
+    elif env.get("GCP_PROJECT_ID"):
+        env.pop("GOOGLE_API_KEY", None)
+        env.pop("GEMINI_API_KEY", None)
+        env["GOOGLE_GENAI_USE_VERTEXAI"] = "true"
+        env["GOOGLE_CLOUD_PROJECT"] = env["GCP_PROJECT_ID"]
+        env["GOOGLE_CLOUD_LOCATION"] = env.get("GCP_VERTEX_LOCATION", "us-central1")
+    if env.get("AGENT_MODEL"):
+        env["GEMINI_MODEL"] = env["AGENT_MODEL"]
+    return env
+
+
 @observe()
 def run_cli_agent(agent_target, prompt, context, bench_use_mcp=True, system_instruction=None):
     """Runs an external binary agent."""
@@ -144,12 +169,8 @@ def run_cli_agent(agent_target, prompt, context, bench_use_mcp=True, system_inst
     # Disable OTLP telemetry exporters to prevent hangs from broken telemetry endpoints
     env = os.environ.copy()
     
-    # Map benchmark standardized vars to Gemini CLI expected vars
-    if "AGENT_API_KEY" in env:
-        env["GOOGLE_API_KEY"] = env["AGENT_API_KEY"]
-        env["GEMINI_API_KEY"] = env["AGENT_API_KEY"]
-    if "AGENT_MODEL" in env:
-        env["GEMINI_MODEL"] = env["AGENT_MODEL"]
+    # Map benchmark standardized vars to the env vars the gemini CLI expects.
+    _apply_gemini_auth_env(env)
 
     env["OTEL_TRACES_EXPORTER"] = "none"
     env["OTEL_METRICS_EXPORTER"] = "none"
