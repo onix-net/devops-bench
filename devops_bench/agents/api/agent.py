@@ -36,7 +36,7 @@ from devops_bench.agents.config import AgentConfig
 from devops_bench.agents.result import AgentResult, ToolCall
 from devops_bench.core import get_logger
 from devops_bench.models import LLMClient, get_model
-from devops_bench.models.loop import LoopResult, run_tool_loop
+from devops_bench.models.utils.loop import LoopResult, run_tool_loop
 
 __all__ = ["ApiAgent", "fold_trajectory", "extract_tokens"]
 
@@ -232,7 +232,7 @@ def _build_dispatch(
 
     Returns:
         An async ``(name, args, call_id) -> str`` callable matching
-        :data:`devops_bench.models.loop.ToolDispatcher`.
+        :data:`devops_bench.models.utils.loop.ToolDispatcher`.
     """
 
     async def dispatch(name: str, args: Any, call_id: str | None) -> str:
