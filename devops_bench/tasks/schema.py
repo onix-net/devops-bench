@@ -113,7 +113,9 @@ class Task(BaseModel):
 
     Attributes:
         id: Task identifier.
-        name: Human-readable task name.
+        name: Human-readable task name (the ``name:`` field from the spec).
+        folder: Name of the directory the task spec was loaded from; ``""`` when
+            the source is not a directory-backed spec.
         prompt: Instruction text driving the agent.
         expected_output: Reference output the result is judged against.
         retrieval_context: Supporting passages for retrieval-based scoring.
@@ -123,12 +125,16 @@ class Task(BaseModel):
             verification subsystem; may be a mapping, list, or raw JSON string.
         infrastructure: Deployer and stack settings for the task environment.
         documentation: Documentation entries, each with per-constraint criticality.
+        validated: Whether the task has been vetted as correct and is eligible to
+            promote to the leaderboard. Defaults to ``False`` so an unvetted task
+            never counts until explicitly marked.
     """
 
     model_config = _STRICT
 
     id: str = ""
     name: str = ""
+    folder: str = ""
     prompt: str = ""
     expected_output: str = ""
     retrieval_context: list[str] = Field(default_factory=list)
@@ -136,9 +142,12 @@ class Task(BaseModel):
     verification_spec: Any = None
     infrastructure: dict[str, Any] = Field(default_factory=dict)
     documentation: list[DocumentationEntry] = Field(default_factory=list)
+    validated: bool = False
 
     @classmethod
-    def from_dict(cls, raw: dict[str, Any], *, name_default: str = "") -> "Task":
+    def from_dict(
+        cls, raw: dict[str, Any], *, name_default: str = "", folder: str = ""
+    ) -> "Task":
         """Build a task from a parsed spec mapping, validating types strictly.
 
         Adapts the source naming before validation: ``task_id`` is accepted as an
@@ -149,6 +158,8 @@ class Task(BaseModel):
         Args:
             raw: Parsed mapping for a single task.
             name_default: Name used when the mapping omits ``name``.
+            folder: Directory name the spec was loaded from, recorded on
+                :attr:`folder`.
 
         Returns:
             The validated task.
@@ -168,11 +179,13 @@ class Task(BaseModel):
         retrieval = raw.get("retrieval_context", [])
         infrastructure = raw.get("infrastructure", {})
         documentation = raw.get("documentation", [])
+        validated = raw.get("validated", False)
 
         return cls.model_validate(
             {
                 "id": "" if raw_id is None else str(raw_id),
                 "name": name_default if name is None else name,
+                "folder": folder,
                 "prompt": _text(prompt),
                 "expected_output": _text(raw.get("expected_output", "")),
                 # An empty YAML block (``key:`` with no value) parses to None;
@@ -182,6 +195,7 @@ class Task(BaseModel):
                 "verification_spec": raw.get("verification_spec"),
                 "infrastructure": {} if infrastructure is None else infrastructure,
                 "documentation": [] if documentation is None else documentation,
+                "validated": False if validated is None else validated,
             }
         )
 
