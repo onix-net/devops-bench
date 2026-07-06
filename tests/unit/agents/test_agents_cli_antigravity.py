@@ -21,10 +21,8 @@ import pathlib
 from types import SimpleNamespace
 from unittest import mock
 
-from devops_bench.agents import base as agents_base
-from devops_bench.agents import config as agents_config
-from devops_bench.agents import result as agents_result
 from devops_bench.agents import capabilities
+from devops_bench.agents import config as agents_config
 from devops_bench.agents.cli.antigravity import agent as agy_mod
 from devops_bench.agents.cli.antigravity import parsing
 from devops_bench.core import subprocess as devops_subprocess
@@ -216,10 +214,8 @@ def test_parse_transcript_jsonl():
 
 def test_build_settings_renders_mcp_and_model():
     mcp = capabilities.McpBinding(name="gke", command=("gke-mcp", "run"))
-    settings = agy_mod._build_settings(
-        (mcp,), "google/gemini-3.5-flash", "my-project", "us-east1"
-    )
-    
+    settings = agy_mod._build_settings((mcp,), "google/gemini-3.5-flash", "my-project", "us-east1")
+
     assert settings["experimental"]["skills"] is True
     assert settings["modelConfigs"]["defaultModel"] == "gemini-3.5-flash"
     assert settings["mcpServers"]["gke"] == {
@@ -239,7 +235,7 @@ def test_build_env_sets_auth_and_presets():
     )
     with mock.patch.dict("os.environ", {"GOOGLE_CLOUD_PROJECT": "my-project"}):
         env = agy_mod._build_env(config)
-        
+
     assert "HOME" not in env  # HOME must not be overridden
     assert env["GEMINI_CLI_TRUST_WORKSPACE"] == "true"
     assert env["GEMINI_API_KEY"] == "secret-key"
@@ -253,14 +249,14 @@ def test_build_env_sets_auth_and_presets():
 def test_agy_cli_agent_execute_flow(mock_run, mock_home, tmp_path):
     # Mock Path.home() to return a temp directory to avoid polluting real HOME
     mock_home.return_value = tmp_path
-    
+
     mock_run.return_value = SimpleNamespace(
         args=["agy"],
         returncode=0,
         stdout="Success",
         stderr="",
     )
-    
+
     # Mock the session file writing that agy would do in the mocked HOME
     def side_effect(*args, **kwargs):
         cwd = kwargs.get("cwd") or tmp_path
@@ -269,11 +265,12 @@ def test_agy_cli_agent_execute_flow(mock_run, mock_home, tmp_path):
         conv_dir.mkdir(parents=True, exist_ok=True)
         uuid = "test-uuid-123"
         (conv_dir / f"{uuid}.db").write_text("", encoding="utf-8")
-        
+
         transcript_dir = root_dir / "brain" / uuid / ".system_generated" / "logs"
         transcript_dir.mkdir(parents=True, exist_ok=True)
         (transcript_dir / "transcript.jsonl").write_text(SAMPLE_SESSION, encoding="utf-8")
         return mock_run.return_value
+
     mock_run.side_effect = side_effect
 
     config = agents_config.AgentConfig(
@@ -282,14 +279,17 @@ def test_agy_cli_agent_execute_flow(mock_run, mock_home, tmp_path):
         capabilities=capabilities.AllCapabilities(),
     )
     agent = agy_mod.AgyCliAgent(config)
-    
+
     result = agent._execute("run task")
-    
-    assert result.output == "I found cluster-a. Let me get its details.Done. Cluster-a is running v1.30."
+
+    assert (
+        result.output
+        == "I found cluster-a. Let me get its details.Done. Cluster-a is running v1.30."
+    )
     assert len(result.trajectory) == 2
     assert result.errors == []
     assert mock_run.called
-    
+
     # Verify argv
     args = mock_run.call_args[0][0]
     assert args[0] == "/bin/agy"

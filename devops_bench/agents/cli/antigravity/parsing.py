@@ -22,6 +22,7 @@ and aggregated token usage.
 from __future__ import annotations
 
 import json
+
 from devops_bench import core
 from devops_bench.agents import result as agents_result
 
@@ -49,11 +50,11 @@ def _parse_tool_result(result_list: list) -> tuple[str, str]:
     """Parse a tool result list into a (result_text, status) tuple."""
     text_parts = []
     status = "completed"
-    
+
     for item in result_list:
         if not isinstance(item, dict):
             continue
-        
+
         # Check for functionResponse structure
         func_resp = item.get("functionResponse")
         if isinstance(func_resp, dict):
@@ -63,7 +64,7 @@ def _parse_tool_result(result_list: list) -> tuple[str, str]:
                 output = response.get("output")
                 if output is not None:
                     text_parts.append(output if isinstance(output, str) else json.dumps(output))
-                
+
                 # Check for error indicators
                 if response.get("error") or response.get("is_error") or response.get("failed"):
                     status = "error"
@@ -72,7 +73,7 @@ def _parse_tool_result(result_list: list) -> tuple[str, str]:
         else:
             # Fallback for other result shapes
             text_parts.append(json.dumps(item))
-            
+
     return "\n".join(text_parts), status
 
 
@@ -82,9 +83,9 @@ def parse_transcript_jsonl(jsonl_text: str) -> tuple[str, list[dict], dict, list
     trajectory: list[dict] = []
     output_parts: list[str] = []
     aggregated_tokens = {"input": 0, "output": 0, "total": 0, "cached": 0}
-    
+
     pending_tool_calls: list[dict] = []
-    
+
     for lineno, raw in enumerate(jsonl_text.splitlines(), start=1):
         line = raw.strip()
         if not line:
@@ -96,33 +97,35 @@ def parse_transcript_jsonl(jsonl_text: str) -> tuple[str, list[dict], dict, list
             continue
         if not isinstance(record, dict):
             continue
-            
+
         stype = record.get("type")
         source = record.get("source")
-        
+
         # Aggregate tokens if present
         if "tokens" in record and isinstance(record["tokens"], dict):
             t = record["tokens"]
             aggregated_tokens["input"] += t.get("input", 0)
             aggregated_tokens["output"] += t.get("output", 0)
             aggregated_tokens["cached"] += t.get("cached", 0)
-            
+
         if source == "MODEL":
             if stype == "PLANNER_RESPONSE":
                 # If it has content, it's a text response
                 if "content" in record and record["content"]:
                     output_parts.append(record["content"])
-                
+
                 # If it has tool calls, queue them
                 if "tool_calls" in record and isinstance(record["tool_calls"], list):
                     for tc in record["tool_calls"]:
                         if isinstance(tc, dict):
-                            pending_tool_calls.append({
-                                "name": tc.get("name", ""),
-                                "args": tc.get("args") or {},
-                                "result": None,
-                                "status": "called"
-                            })
+                            pending_tool_calls.append(
+                                {
+                                    "name": tc.get("name", ""),
+                                    "args": tc.get("args") or {},
+                                    "result": None,
+                                    "status": "called",
+                                }
+                            )
             else:
                 # This is a tool execution result!
                 # Match it with the first pending tool call
@@ -137,12 +140,12 @@ def parse_transcript_jsonl(jsonl_text: str) -> tuple[str, list[dict], dict, list
         elif stype == "ERROR_MESSAGE":
             if record.get("content"):
                 errors.append(f"System error: {record['content']}")
-                
+
     # If there are still pending tool calls at the end, they were probably interrupted
     for tc in pending_tool_calls:
         tc["status"] = "interrupted"
         trajectory.append(tc)
-        
+
     aggregated_tokens["total"] = aggregated_tokens["input"] + aggregated_tokens["output"]
     output = "".join(output_parts)
     return output, trajectory, aggregated_tokens, errors
@@ -196,9 +199,9 @@ def _parse_old_session_jsonl(jsonl_text: str) -> tuple[str, list[dict], dict, li
             if rewind_id in message_ids:
                 idx = message_ids.index(rewind_id)
                 # Keep everything up to the rewind target, discard the rest
-                for removed in message_ids[idx + 1:]:
+                for removed in message_ids[idx + 1 :]:
                     messages_by_id.pop(removed, None)
-                del message_ids[idx + 1:]
+                del message_ids[idx + 1 :]
             else:
                 # If target not found, clear everything (defensive)
                 message_ids.clear()
@@ -223,34 +226,36 @@ def _parse_old_session_jsonl(jsonl_text: str) -> tuple[str, list[dict], dict, li
     for mid in message_ids:
         msg = messages_by_id[mid]
         mtype = msg.get("type")
-        
+
         if mtype in ("gemini", "agent", "assistant"):
             # Extract text output
             content_text = _extract_text(msg.get("content", ""))
             if content_text:
                 output_parts.append(content_text)
-                
+
             # Extract tool calls
             tool_calls_data = msg.get("toolCalls")
             if isinstance(tool_calls_data, list):
                 for tc in tool_calls_data:
                     if not isinstance(tc, dict):
                         continue
-                    
+
                     name = tc.get("name", "")
                     args = tc.get("args") or tc.get("arguments") or {}
-                    
+
                     # Parse result and status
                     result_text = None
                     status = "called"
                     result_data = tc.get("result")
-                    
+
                     if isinstance(result_data, list):
                         result_text, status = _parse_tool_result(result_data)
                     elif result_data is not None:
-                        result_text = result_data if isinstance(result_data, str) else json.dumps(result_data)
+                        result_text = (
+                            result_data if isinstance(result_data, str) else json.dumps(result_data)
+                        )
                         status = "completed"
-                        
+
                     call = agents_result.ToolCall(
                         name=name,
                         args=args if isinstance(args, dict) else {},
@@ -258,7 +263,7 @@ def _parse_old_session_jsonl(jsonl_text: str) -> tuple[str, list[dict], dict, li
                         status=status,
                     )
                     trajectory.append(call)
-            
+
             # Aggregate tokens
             msg_tokens = msg.get("tokens")
             if isinstance(msg_tokens, dict):
@@ -266,10 +271,10 @@ def _parse_old_session_jsonl(jsonl_text: str) -> tuple[str, list[dict], dict, li
                 output_cnt = msg_tokens.get("output", 0)
                 thoughts_cnt = msg_tokens.get("thoughts", 0)
                 tool_cnt = msg_tokens.get("tool", 0)
-                aggregated_tokens["output"] += (output_cnt + thoughts_cnt + tool_cnt)
+                aggregated_tokens["output"] += output_cnt + thoughts_cnt + tool_cnt
                 aggregated_tokens["cached"] += msg_tokens.get("cached", 0)
 
     aggregated_tokens["total"] = aggregated_tokens["input"] + aggregated_tokens["output"]
-    
+
     output = "".join(output_parts)
     return output, [call.to_dict() for call in trajectory], aggregated_tokens, errors
