@@ -55,3 +55,7 @@ class ResourceExistsVerifier(BaseVerifier):
             return False, {
                 "reason": f"{self.kind}/{self.name} not found: {e.stderr.strip()}"
             }
+        except FileNotFoundError:
+            return False, {
+                "reason": "kubectl command not found in PATH. Please ensure kubectl is installed."
+            }
