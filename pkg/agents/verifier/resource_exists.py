@@ -41,7 +41,7 @@ class ResourceExistsVerifier(BaseVerifier):
             time.sleep(delay)
             delay = min(delay * 2, max_delay)
 
-    def _check_exists(self) -> (bool, dict):
+    def _check_exists(self) -> tuple[bool, dict]:
         cmd = ["kubectl", "get", self.kind, self.name]
         if self.namespace:
             cmd.extend(["-n", self.namespace])
