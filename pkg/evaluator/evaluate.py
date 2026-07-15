@@ -585,7 +585,10 @@ def evaluate_metrics_batch(detailed_results, judge_model):
         # Deterministic gate: if this task has a verification_spec, its
         # (already-computed, pre-teardown) result is authoritative for
         # correctness. We record it as ChecklistScore and SKIP the slow,
-        # reward-hackable LLM critical-requirements checks entirely.
+        # reward-hackable LLM critical-requirements checks entirely. This holds
+        # for both non-chaos and chaos tasks; for chaos tasks the result was
+        # produced by the ScenarioManager during the fault window and reused
+        # (see the execution loop) rather than re-run.
         det_result = res.get("deterministic_verification")
         use_deterministic_gate = res.get("verification_spec") is not None
 
@@ -986,17 +989,30 @@ def main():
                 }
             )
 
-            # Run deterministic verification against the live cluster BEFORE
-            # teardown. When present, this becomes the authoritative correctness
-            # gate and the LLM critical-requirements judge is skipped downstream.
+            # Deterministic verification. When a verification_spec is present it
+            # becomes the authoritative correctness gate and the LLM
+            # critical-requirements judge is skipped downstream.
+            #
+            # For chaos tasks the ScenarioManager already ran the same
+            # verification_spec against the cluster during the fault window and
+            # stored the outcome in chaos_report["verification"]. We reuse that
+            # result instead of running the verifier a second time. For non-chaos
+            # tasks we run it once here, against the live cluster before teardown.
             verification_spec = item.get("verification_spec")
             if verification_spec:
-                print(
-                    f"--- Running deterministic verification for: {item['name']} ---"
-                )
-                det_result = run_deterministic_verification(
-                    verification_spec, project_id, active_cluster_name
-                )
+                chaos_verification = chaos_report.get("verification")
+                if scenario_manager and chaos_verification:
+                    print(
+                        f"--- Reusing chaos verification result for: {item['name']} ---"
+                    )
+                    det_result = chaos_verification
+                else:
+                    print(
+                        f"--- Running deterministic verification for: {item['name']} ---"
+                    )
+                    det_result = run_deterministic_verification(
+                        verification_spec, project_id, active_cluster_name
+                    )
                 detailed_results[-1]["deterministic_verification"] = det_result
                 print(
                     f"Deterministic verification result: "
