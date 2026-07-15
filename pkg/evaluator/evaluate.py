@@ -40,6 +40,7 @@ from pkg.evaluator.loader import (
 )
 import threading
 from pkg.manager.manager import ScenarioManager
+from pkg.agents.verifier.verifier import VerifierAgent
 from deployers.factory import get_deployer
 
 
@@ -159,6 +160,98 @@ def replace_placeholders(text, project_id, cluster_name):
         .replace("{{TARGET_DEPLOYMENT_NAME}}", target_deployment)
         .replace("{{NAMESPACE}}", namespace)
     )
+
+
+def run_deterministic_verification(
+    verification_spec, project_id, cluster_name, timeout_sec=180
+):
+    """Runs a task's verification_spec against the live cluster.
+
+    Executed while the cluster is still up (before teardown), so kubectl reads
+    reflect real applied state. Returns a plain dict describing the outcome, or
+    None if there is no verification_spec to run.
+
+    Supports both the plain verifier form (single spec / list / dict of specs)
+    and the named-bundle form used by chaos tasks (a list of objects each with a
+    "name" key plus verifier sub-specs); in the latter case the verifier
+    sub-specs of every bundle are evaluated.
+    """
+    if not verification_spec:
+        return None
+
+    processed = replace_placeholders(
+        json.dumps(verification_spec)
+        if isinstance(verification_spec, (dict, list))
+        else str(verification_spec),
+        project_id,
+        cluster_name,
+    )
+    try:
+        spec = json.loads(processed)
+    except (json.JSONDecodeError, TypeError) as e:
+        return {
+            "success": False,
+            "reason": f"Failed to parse verification_spec: {e}",
+        }
+
+    # Normalize the chaos "named bundle" form into plain verifier specs.
+    spec = _strip_named_bundles(spec)
+
+    try:
+        result = VerifierAgent().wait_for_condition(spec, timeout_sec=timeout_sec)
+        return result.model_dump()
+    except Exception as e:
+        return {
+            "success": False,
+            "reason": f"Deterministic verification raised: {e}",
+        }
+
+
+def _strip_named_bundles(spec):
+    """Converts chaos-style named verification bundles into plain verifier specs.
+
+    A named bundle (the format used by chaos tasks, e.g. optimize-scale) looks
+    like:
+        [{ "name": "...", "pod_spec": {..verifier..}, "scaling_spec": {..} }]
+    The "name" exists so a chaos_spec can reference the bundle by name; it is NOT
+    a verifier. We drop the "name" key and keep only the verifier sub-specs.
+    Plain specs (already valid SingleVerificationSpec shapes) pass through
+    unchanged.
+
+    WHY THIS SHIM EXISTS
+    --------------------
+    A bundle dict is not a valid VerificationSpec: it carries a top-level "name"
+    string, and if that dict is handed straight to VerifierAgent.wait_for_condition
+    the dict branch (see pkg/agents/verifier/verifier.py) tries to validate the
+    "name" *string* as a verifier and raises a ValidationError (verified against
+    the current code). To reuse the exact same task format for non-chaos
+    deterministic grading, we normalize the bundle here (drop "name", keep the
+    verifier sub-specs) before validation.
+
+    Note: the existing chaos path (ScenarioManager -> wait_for_condition) passes
+    the bundle through WITHOUT this normalization, so it is subject to the same
+    "name"-key validation issue. The proper long-term fix is at the root (see
+    below), which would cover both paths.
+
+    HOW TO REMOVE THIS SHIM
+    -----------------------
+    Move the fix to the single source of truth instead: in
+    VerifierAgent.wait_for_condition's dict branch, skip the reserved "name" key
+    while iterating (e.g. `if key == "name": continue`). That fixes both the
+    chaos path and this path at the root, after which this function can be
+    deleted and callers can pass the spec through directly.
+    """
+    if isinstance(spec, list):
+        converted = []
+        for entry in spec:
+            if isinstance(entry, dict) and "type" not in entry and "name" in entry:
+                converted.extend(
+                    v for k, v in entry.items() if k != "name" and isinstance(v, dict)
+                )
+            else:
+                converted.append(entry)
+        return converted
+    return spec
 
 
 def print_configuration_context(
@@ -489,6 +582,16 @@ def evaluate_metrics_batch(detailed_results, judge_model):
         outcome_criteria = metrics[0].criteria
         tool_criteria = metrics[1].criteria
 
+        # Deterministic gate: if this task has a verification_spec, its
+        # (already-computed, pre-teardown) result is authoritative for
+        # correctness. We record it as ChecklistScore and SKIP the slow,
+        # reward-hackable LLM critical-requirements checks entirely. This holds
+        # for both non-chaos and chaos tasks; for chaos tasks the result was
+        # produced by the ScenarioManager during the fault window and reused
+        # (see the execution loop) rather than re-run.
+        det_result = res.get("deterministic_verification")
+        use_deterministic_gate = res.get("verification_spec") is not None
+
         # Extract checklist items ONLY from the critical requirements section to avoid parsing YAML lists
         reqs_section = expected_output
         if "critical requirements:" in reqs_section.lower():
@@ -509,24 +612,30 @@ def evaluate_metrics_batch(detailed_results, judge_model):
             if line.strip().startswith("-")
         ]
         checklist_items = []
-        for item in raw_checklist_items:
-            if not bench_use_mcp and "expected tool call" in item.lower():
-                print(f"Skipping Expected Tool Call criteria: '{item}'")
-                continue
-            checklist_items.append(item)
         dynamic_metrics = []
-        for item in checklist_items:
-            dynamic_metrics.append(
-                GEval(
-                    name=f"Check: {item}",
-                    criteria=(
-                        "Verify that the actual output fulfills this specific"
-                        f" requirement: {item}"
-                    ),
-                    evaluation_params=[SingleTurnParams.ACTUAL_OUTPUT],
-                    model=judge_model,
-                )
+        if use_deterministic_gate:
+            print(
+                f"Deterministic gate active for '{name}': skipping LLM"
+                " critical-requirements checks."
             )
+        else:
+            for item in raw_checklist_items:
+                if not bench_use_mcp and "expected tool call" in item.lower():
+                    print(f"Skipping Expected Tool Call criteria: '{item}'")
+                    continue
+                checklist_items.append(item)
+            for item in checklist_items:
+                dynamic_metrics.append(
+                    GEval(
+                        name=f"Check: {item}",
+                        criteria=(
+                            "Verify that the actual output fulfills this specific"
+                            f" requirement: {item}"
+                        ),
+                        evaluation_params=[SingleTurnParams.ACTUAL_OUTPUT],
+                        model=judge_model,
+                    )
+                )
 
         outcome_validity = GEval(
             name="OutcomeValidity",
@@ -580,27 +689,53 @@ def evaluate_metrics_batch(detailed_results, judge_model):
             latency=latency,
         )
 
-        print(f"Evaluating metrics for: {name}...")
-        outcome_result = evaluate([outcome_test_case], metrics=[outcome_validity])
-
         scores = {}
-        for test_result in outcome_result.test_results:
-            for metric_data in test_result.metrics_data:
-                scores[metric_data.name] = {
-                    "score": metric_data.score,
-                    "success": metric_data.success,
-                    "reason": getattr(metric_data, "reason", None),
-                }
 
-        if os.environ.get("BENCH_USE_MCP", "true").lower() == "true":
-            tool_result = evaluate([tool_test_case], metrics=[tool_invocation])
-            for test_result in tool_result.test_results:
+        if use_deterministic_gate:
+            # Correctness comes entirely from the pre-computed deterministic
+            # verification result. No LLM judge calls are made for this task.
+            det = det_result or {
+                "success": False,
+                "reason": "verification_spec present but no deterministic result was recorded",
+            }
+            det_success = bool(det.get("success"))
+            scores["ChecklistScore"] = {
+                "score": 1.0 if det_success else 0.0,
+                "success": det_success,
+                "reason": det.get("reason", "deterministic verification"),
+            }
+            scores["DeterministicVerification"] = {
+                "score": 1.0 if det_success else 0.0,
+                "success": det_success,
+                "reason": det.get("reason"),
+                "elapsed_time": det.get("elapsed_time"),
+                "details": det.get("details"),
+            }
+            print(
+                f"Deterministic ChecklistScore for '{name}': "
+                f"success={det_success} reason={det.get('reason')}"
+            )
+        else:
+            print(f"Evaluating metrics for: {name}...")
+            outcome_result = evaluate([outcome_test_case], metrics=[outcome_validity])
+
+            for test_result in outcome_result.test_results:
                 for metric_data in test_result.metrics_data:
                     scores[metric_data.name] = {
                         "score": metric_data.score,
                         "success": metric_data.success,
                         "reason": getattr(metric_data, "reason", None),
                     }
+
+            if os.environ.get("BENCH_USE_MCP", "true").lower() == "true":
+                tool_result = evaluate([tool_test_case], metrics=[tool_invocation])
+                for test_result in tool_result.test_results:
+                    for metric_data in test_result.metrics_data:
+                        scores[metric_data.name] = {
+                            "score": metric_data.score,
+                            "success": metric_data.success,
+                            "reason": getattr(metric_data, "reason", None),
+                        }
 
         if dynamic_metrics:
             print(f"Evaluating {len(dynamic_metrics)} dynamic metrics sequentially...")
@@ -850,8 +985,39 @@ def main():
                     if scenario_manager
                     else agent_res.get("perf_report", {}),
                     "documentation": item.get("documentation", []),
+                    "verification_spec": item.get("verification_spec"),
                 }
             )
+
+            # Deterministic verification. When a verification_spec is present it
+            # becomes the authoritative correctness gate and the LLM
+            # critical-requirements judge is skipped downstream.
+            #
+            # For chaos tasks the ScenarioManager already ran the same
+            # verification_spec against the cluster during the fault window and
+            # stored the outcome in chaos_report["verification"]. We reuse that
+            # result instead of running the verifier a second time. For non-chaos
+            # tasks we run it once here, against the live cluster before teardown.
+            verification_spec = item.get("verification_spec")
+            if verification_spec:
+                chaos_verification = chaos_report.get("verification")
+                if scenario_manager and chaos_verification:
+                    print(
+                        f"--- Reusing chaos verification result for: {item['name']} ---"
+                    )
+                    det_result = chaos_verification
+                else:
+                    print(
+                        f"--- Running deterministic verification for: {item['name']} ---"
+                    )
+                    det_result = run_deterministic_verification(
+                        verification_spec, project_id, active_cluster_name
+                    )
+                detailed_results[-1]["deterministic_verification"] = det_result
+                print(
+                    f"Deterministic verification result: "
+                    f"success={det_result.get('success')} reason={det_result.get('reason')}"
+                )
 
             print(f"--- Agent Response ---\n{actual_output}\n----------------------")
 
