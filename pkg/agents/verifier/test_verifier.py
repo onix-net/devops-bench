@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 from pkg.agents.verifier.verifier import VerifierAgent
 from pkg.agents.verifier.pod_healthy import PodHealthyVerifier
 from pkg.agents.verifier.scaling_complete import ScalingCompleteVerifier
+from pkg.agents.verifier.resource_exists import ResourceExistsVerifier
+from pkg.agents.verifier.resource_field import ResourceFieldVerifier
 
 class TestVerifierAgent(unittest.TestCase):
 
@@ -109,6 +111,153 @@ class TestVerifierAgent(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertEqual(result.reason, "Scaling complete: done")
         self.assertEqual(mock_sleep.call_count, 1)
+
+    # --- ResourceExistsVerifier ---
+
+    @patch("subprocess.run")
+    def test_resource_exists_verifier_success(self, mock_run):
+        mock_run.return_value = MagicMock(
+            stdout="deployment.apps/my-dep", returncode=0
+        )
+
+        r_verifier = ResourceExistsVerifier(
+            kind="deployment", name="my-dep", namespace="default"
+        )
+        result = r_verifier.verify(timeout_sec=5)
+
+        self.assertTrue(result.success)
+        self.assertIn("exists", result.reason)
+
+    @patch("time.sleep")
+    @patch("subprocess.run")
+    def test_resource_exists_verifier_not_found(self, mock_run, mock_sleep):
+        mock_run.side_effect = subprocess.CalledProcessError(
+            1, "kubectl get", stderr='Error from server (NotFound)'
+        )
+
+        r_verifier = ResourceExistsVerifier(
+            kind="deployment", name="does-not-exist", namespace="default"
+        )
+        result = r_verifier.verify(timeout_sec=1)
+
+        self.assertFalse(result.success)
+        self.assertIn("not found", result.reason)
+
+    @patch("subprocess.run")
+    def test_resource_exists_verifier_omits_namespace_when_none(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="namespace/foo", returncode=0)
+
+        r_verifier = ResourceExistsVerifier(kind="namespace", name="foo")
+        result = r_verifier.verify(timeout_sec=5)
+
+        self.assertTrue(result.success)
+        called_cmd = mock_run.call_args[0][0]
+        self.assertNotIn("-n", called_cmd)
+
+    # --- ResourceFieldVerifier ---
+
+    @patch("subprocess.run")
+    def test_resource_field_verifier_match(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="false", returncode=0)
+
+        f_verifier = ResourceFieldVerifier(
+            kind="deployment",
+            name="hypercomputer-d1-frontend",
+            namespace="default",
+            json_path="{.spec.template.spec.containers[?(@.name=='frontend')].env[?(@.name=='USE_GEMINI_API')].value}",
+            expected="false",
+        )
+        result = f_verifier.verify(timeout_sec=5)
+
+        self.assertTrue(result.success)
+        self.assertIn("matched expected value", result.reason)
+        self.assertEqual(result.details["actual"], "false")
+
+    @patch("time.sleep")
+    @patch("subprocess.run")
+    def test_resource_field_verifier_mismatch(self, mock_run, mock_sleep):
+        mock_run.return_value = MagicMock(stdout="true", returncode=0)
+
+        f_verifier = ResourceFieldVerifier(
+            kind="deployment",
+            name="hypercomputer-d1-frontend",
+            namespace="default",
+            json_path="{.spec.template.spec.containers[?(@.name=='frontend')].env[?(@.name=='USE_GEMINI_API')].value}",
+            expected="false",
+        )
+        result = f_verifier.verify(timeout_sec=1)
+
+        self.assertFalse(result.success)
+        self.assertIn("mismatch", result.reason)
+        self.assertEqual(result.details["expected"], "false")
+        self.assertEqual(result.details["actual"], "true")
+
+    @patch("time.sleep")
+    @patch("subprocess.run")
+    def test_resource_field_verifier_get_fails(self, mock_run, mock_sleep):
+        mock_run.side_effect = subprocess.CalledProcessError(
+            1, "kubectl get", stderr="Error from server (NotFound)"
+        )
+
+        f_verifier = ResourceFieldVerifier(
+            kind="deployment",
+            name="missing",
+            namespace="default",
+            json_path="{.spec.replicas}",
+            expected="1",
+        )
+        result = f_verifier.verify(timeout_sec=1)
+
+        self.assertFalse(result.success)
+        self.assertIn("Failed to read", result.reason)
+
+    @patch("subprocess.run")
+    def test_resource_field_verifier_uses_jsonpath_output(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="1", returncode=0)
+
+        f_verifier = ResourceFieldVerifier(
+            kind="hpa",
+            name="my-hpa",
+            namespace="default",
+            json_path="{.spec.minReplicas}",
+            expected="1",
+        )
+        result = f_verifier.verify(timeout_sec=5)
+
+        self.assertTrue(result.success)
+        called_cmd = mock_run.call_args[0][0]
+        self.assertIn("jsonpath={.spec.minReplicas}", called_cmd)
+
+    # --- Compound spec that mixes the new verifiers ---
+
+    @patch("subprocess.run")
+    def test_wait_for_condition_compound_new_verifiers(self, mock_run):
+        def run_side_effect(cmd, *args, **kwargs):
+            if "jsonpath" in " ".join(cmd):
+                return MagicMock(stdout="false", returncode=0)
+            return MagicMock(stdout="service/my-svc", returncode=0)
+
+        mock_run.side_effect = run_side_effect
+
+        spec = {
+            "cfg": {
+                "type": "resource_field",
+                "kind": "deployment",
+                "name": "my-dep",
+                "json_path": "{.spec.replicas}",
+                "expected": "false",
+            },
+            "svc": {
+                "type": "resource_exists",
+                "kind": "service",
+                "name": "my-svc",
+            },
+        }
+        result = self.verifier.wait_for_condition(spec, timeout_sec=30)
+
+        self.assertTrue(result.success)
+        self.assertIn("cfg succeeded", result.reason)
+        self.assertIn("svc succeeded", result.reason)
 
     @patch("subprocess.run")
     def test_wait_for_condition_compound_success(self, mock_run):

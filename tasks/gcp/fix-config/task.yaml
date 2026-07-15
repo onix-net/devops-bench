@@ -55,3 +55,21 @@ expected_output: |
   - Validate that the agent actually applied the manifest to the cluster using tools (e.g., kubectl) rather than just showing the YAML.
 
   Expected Manifest Generated: N/A, not a manifest generation request.
+# Deterministic correctness gate. When present, this replaces the LLM judge for
+# grading: the checks below are run against the live cluster with kubectl. Reading
+# these live field values also proves the manifest was actually applied (not just
+# printed), covering the "actually applied the manifest" critical requirement.
+verification_spec: |
+  [
+    {
+      "name": "Config Applied Verification",
+      "use_gemini_api_disabled": {
+        "type": "resource_field",
+        "kind": "deployment",
+        "name": "hypercomputer-d1-frontend",
+        "namespace": "default",
+        "json_path": "{.spec.template.spec.containers[?(@.name=='frontend')].env[?(@.name=='USE_GEMINI_API')].value}",
+        "expected": "false"
+      }
+    }
+  ]

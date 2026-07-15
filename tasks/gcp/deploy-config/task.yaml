@@ -126,3 +126,40 @@ expected_output: |
   - Confirm that the 'hypercomputer-d1-vllm-server' deployment was successfully applied to the cluster.
 
   Expected Manifest Generated: N/A, not a manifest generation request.
+# Deterministic correctness gate. When present, this replaces the LLM judge for
+# grading: each object below is looked up in the live cluster with kubectl, which
+# proves the agent actually applied the manifests (Deployment + Service + HPA)
+# rather than just printing YAML. We assert HPA.minReplicas as a field-level check
+# so config correctness is verified without depending on GPU pod scheduling.
+verification_spec: |
+  [
+    {
+      "name": "Manifests Applied Verification",
+      "deployment_applied": {
+        "type": "resource_exists",
+        "kind": "deployment",
+        "name": "hypercomputer-d1-vllm-server",
+        "namespace": "default"
+      },
+      "service_applied": {
+        "type": "resource_exists",
+        "kind": "service",
+        "name": "hypercomputer-d1-vllm-service",
+        "namespace": "default"
+      },
+      "hpa_applied": {
+        "type": "resource_exists",
+        "kind": "hpa",
+        "name": "hypercomputer-d1-vllm-hpa",
+        "namespace": "default"
+      },
+      "hpa_min_replicas": {
+        "type": "resource_field",
+        "kind": "hpa",
+        "name": "hypercomputer-d1-vllm-hpa",
+        "namespace": "default",
+        "json_path": "{.spec.minReplicas}",
+        "expected": "1"
+      }
+    }
+  ]
