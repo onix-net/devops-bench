@@ -28,6 +28,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from pydantic import ValidationError
 
 from devops_bench.verification.base import VerificationResult
 from devops_bench.verification.entry import VerificationEntry
@@ -190,9 +191,9 @@ def test_hold_mode_samples_multiple_times():
                 "hold_interval_sec": 5.0,
             },
         )
-        result = VerifierAgent().run_entry(entry, timeout_sec=60)
+        pair = VerifierAgent().run_entry(entry, timeout_sec=60)
 
-    assert result.success is True
+    assert pair.result.success is True
     assert call_count >= 2
 
 
@@ -221,11 +222,11 @@ def test_hold_mode_fails_on_first_failing_sample():
                 "hold_interval_sec": 5.0,
             },
         )
-        result = VerifierAgent().run_entry(entry, timeout_sec=60)
+        pair = VerifierAgent().run_entry(entry, timeout_sec=60)
 
-    assert result.success is False
-    assert "sample 2" in result.reason
-    assert "condition broke" in result.reason
+    assert pair.result.success is False
+    assert "sample 2" in pair.result.reason
+    assert "condition broke" in pair.result.reason
     # Exactly 2 samples: first passed, second failed (loop stopped immediately)
     assert call_count == 2
 
@@ -262,27 +263,31 @@ def test_hold_mode_does_not_sleep_between_window_end_and_deadline():
                 "hold_interval_sec": 5.0,
             },
         )
-        result = VerifierAgent().run_entry(entry, timeout_sec=60)
+        pair = VerifierAgent().run_entry(entry, timeout_sec=60)
 
-    assert result.success is True
+    assert pair.result.success is True
 
 
 # -- unchanged mode -----------------------------------------------------------
 
 
-def test_unchanged_mode_raises_not_implemented():
-    entry = VerificationEntry(
-        name="check",
-        role="correctness",
-        spec={
-            "type": "scaling_complete",
-            "deployment": "web",
-            "mode": "unchanged",
-        },
-    )
+def test_unchanged_mode_fails_at_entry_construction():
+    """mode='unchanged' is rejected at task-load time, not mid-eval.
 
-    with pytest.raises(NotImplementedError, match="snapshot"):
-        VerifierAgent().run_entry(entry, timeout_sec=30)
+    The validator on VerificationEntry raises ValidationError when the raw spec
+    dict contains mode='unchanged', so the failure surfaces at schema validation
+    rather than deep inside VerifierAgent._run_leaf.
+    """
+    with pytest.raises(ValidationError, match="unchanged"):
+        VerificationEntry(
+            name="check",
+            role="correctness",
+            spec={
+                "type": "scaling_complete",
+                "deployment": "web",
+                "mode": "unchanged",
+            },
+        )
 
 
 # -- explicit mode overrides role default -------------------------------------

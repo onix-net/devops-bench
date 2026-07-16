@@ -29,7 +29,7 @@ submodule imports or from this package.
 
 from devops_bench.verification.base import VERIFIERS, BaseVerifier, Mode, VerificationResult
 from devops_bench.verification.entry import Role, VerificationEntry
-from devops_bench.verification.rollup import RollupScores, rollup
+from devops_bench.verification.rollup import EvaluatedEntry, RollupScores, rollup
 from devops_bench.verification.runner import VerifierAgent
 from devops_bench.verification.spec import (
     ParallelSpec,
@@ -42,6 +42,7 @@ from devops_bench.verification.spec import (
 
 __all__ = [
     "BaseVerifier",
+    "EvaluatedEntry",
     "Mode",
     "ParallelSpec",
     "Role",

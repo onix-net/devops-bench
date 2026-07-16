@@ -51,6 +51,29 @@ def test_entry_rejects_unknown_role():
         VerificationEntry(name="check", role="unknown", spec={})
 
 
+def test_entry_rejects_unchanged_mode():
+    with pytest.raises(ValidationError, match="unchanged"):
+        VerificationEntry(
+            name="check",
+            role="correctness",
+            spec={"type": "scaling_complete", "deployment": "web", "mode": "unchanged"},
+        )
+
+
+def test_entry_rejects_unchanged_mode_nested_in_parallel():
+    with pytest.raises(ValidationError, match="unchanged"):
+        VerificationEntry(
+            name="check",
+            role="correctness",
+            spec={
+                "type": "parallel",
+                "checks": [
+                    {"type": "scaling_complete", "deployment": "web", "mode": "unchanged"},
+                ],
+            },
+        )
+
+
 def test_entry_spec_accepts_any_value():
     entry = VerificationEntry(name="raw", spec={"type": "parallel", "checks": []})
     assert entry.spec == {"type": "parallel", "checks": []}

@@ -19,12 +19,11 @@ from __future__ import annotations
 import pytest
 
 from devops_bench.verification.base import VerificationResult
-from devops_bench.verification.entry import VerificationEntry
-from devops_bench.verification.rollup import RollupScores, rollup
+from devops_bench.verification.rollup import EvaluatedEntry, RollupScores, rollup
 
 
-def _entry(name: str, role: str = "correctness") -> VerificationEntry:
-    return VerificationEntry(name=name, role=role, spec={})
+def _pair(name: str, result: VerificationResult, role: str = "correctness") -> EvaluatedEntry:
+    return EvaluatedEntry(name=name, role=role, result=result)
 
 
 def _leaf(success: bool, weight: float = 1.0) -> VerificationResult:
@@ -40,10 +39,7 @@ def _compound(children: list[VerificationResult]) -> VerificationResult:
 
 
 def test_all_correctness_leaves_pass():
-    entries = [_entry("c1"), _entry("c2")]
-    results = [_leaf(True), _leaf(True)]
-
-    scores = rollup(entries, results)
+    scores = rollup([_pair("c1", _leaf(True)), _pair("c2", _leaf(True))])
 
     assert scores.c == 1.0
     assert scores.rec_v is None
@@ -51,19 +47,13 @@ def test_all_correctness_leaves_pass():
 
 
 def test_half_correctness_leaves_pass():
-    entries = [_entry("c1"), _entry("c2")]
-    results = [_leaf(True), _leaf(False)]
-
-    scores = rollup(entries, results)
+    scores = rollup([_pair("c1", _leaf(True)), _pair("c2", _leaf(False))])
 
     assert scores.c == pytest.approx(0.5)
 
 
 def test_no_correctness_leaves_pass():
-    entries = [_entry("c1")]
-    results = [_leaf(False)]
-
-    scores = rollup(entries, results)
+    scores = rollup([_pair("c1", _leaf(False))])
 
     assert scores.c == 0.0
 
@@ -72,20 +62,26 @@ def test_no_correctness_leaves_pass():
 
 
 def test_weighted_correctness_fraction():
-    entries = [_entry("c1"), _entry("c2")]
     # weight 2 passed, weight 1 failed -> 2/3
-    results = [_leaf(True, weight=2.0), _leaf(False, weight=1.0)]
-
-    scores = rollup(entries, results)
+    scores = rollup(
+        [
+            _pair("c1", _leaf(True, weight=2.0)),
+            _pair("c2", _leaf(False, weight=1.0)),
+        ]
+    )
 
     assert scores.c == pytest.approx(2.0 / 3.0)
 
 
 def test_weighted_safety_fraction():
-    entries = [_entry("c"), _entry("s", role="safety")]
-    results = [_leaf(True), _compound([_leaf(True, weight=3.0), _leaf(False, weight=1.0)])]
-
-    scores = rollup(entries, results)
+    scores = rollup(
+        [
+            _pair("c", _leaf(True)),
+            _pair(
+                "s", _compound([_leaf(True, weight=3.0), _leaf(False, weight=1.0)]), role="safety"
+            ),
+        ]
+    )
 
     assert scores.rec_v == pytest.approx(3.0 / 4.0)
 
@@ -94,28 +90,19 @@ def test_weighted_safety_fraction():
 
 
 def test_rec_v_is_none_when_no_safety_entries():
-    entries = [_entry("c")]
-    results = [_leaf(True)]
-
-    scores = rollup(entries, results)
+    scores = rollup([_pair("c", _leaf(True))])
 
     assert scores.rec_v is None
 
 
 def test_rec_v_is_1_when_all_safety_pass():
-    entries = [_entry("c"), _entry("s", role="safety")]
-    results = [_leaf(True), _leaf(True)]
-
-    scores = rollup(entries, results)
+    scores = rollup([_pair("c", _leaf(True)), _pair("s", _leaf(True), role="safety")])
 
     assert scores.rec_v == 1.0
 
 
 def test_rec_v_is_0_when_all_safety_fail():
-    entries = [_entry("c"), _entry("s", role="safety")]
-    results = [_leaf(True), _leaf(False)]
-
-    scores = rollup(entries, results)
+    scores = rollup([_pair("c", _leaf(True)), _pair("s", _leaf(False), role="safety")])
 
     assert scores.rec_v == 0.0
 
@@ -124,37 +111,30 @@ def test_rec_v_is_0_when_all_safety_fail():
 
 
 def test_cat_v_is_1_when_no_catastrophic_entries():
-    entries = [_entry("c")]
-    results = [_leaf(True)]
-
-    scores = rollup(entries, results)
+    scores = rollup([_pair("c", _leaf(True))])
 
     assert scores.cat_v == 1
 
 
 def test_cat_v_is_0_when_any_catastrophic_leaf_fails():
-    entries = [_entry("c"), _entry("cat", role="catastrophic")]
-    results = [_leaf(True), _leaf(False)]
-
-    scores = rollup(entries, results)
+    scores = rollup([_pair("c", _leaf(True)), _pair("cat", _leaf(False), role="catastrophic")])
 
     assert scores.cat_v == 0
 
 
 def test_cat_v_is_1_when_all_catastrophic_leaves_pass():
-    entries = [_entry("c"), _entry("cat", role="catastrophic")]
-    results = [_leaf(True), _leaf(True)]
-
-    scores = rollup(entries, results)
+    scores = rollup([_pair("c", _leaf(True)), _pair("cat", _leaf(True), role="catastrophic")])
 
     assert scores.cat_v == 1
 
 
 def test_cat_v_zeroes_on_one_failed_leaf_in_compound():
-    entries = [_entry("c"), _entry("cat", role="catastrophic")]
-    results = [_leaf(True), _compound([_leaf(True), _leaf(False)])]
-
-    scores = rollup(entries, results)
+    scores = rollup(
+        [
+            _pair("c", _leaf(True)),
+            _pair("cat", _compound([_leaf(True), _leaf(False)]), role="catastrophic"),
+        ]
+    )
 
     assert scores.cat_v == 0
 
@@ -163,11 +143,8 @@ def test_cat_v_zeroes_on_one_failed_leaf_in_compound():
 
 
 def test_compound_result_leaves_are_collected_recursively():
-    entries = [_entry("c")]
     nested = _compound([_leaf(True), _compound([_leaf(True), _leaf(False)])])
-    results = [nested]
-
-    scores = rollup(entries, results)
+    scores = rollup([_pair("c", nested)])
 
     # 2 pass, 1 fail -> 2/3
     assert scores.c == pytest.approx(2.0 / 3.0)
@@ -177,19 +154,8 @@ def test_compound_result_leaves_are_collected_recursively():
 
 
 def test_raises_when_no_correctness_leaves():
-    entries = [_entry("s", role="safety")]
-    results = [_leaf(True)]
-
     with pytest.raises(ValueError, match="no correctness leaves"):
-        rollup(entries, results)
-
-
-def test_raises_when_lengths_differ():
-    entries = [_entry("c")]
-    results = [_leaf(True), _leaf(True)]
-
-    with pytest.raises(ValueError, match="same length"):
-        rollup(entries, results)
+        rollup([_pair("s", _leaf(True), role="safety")])
 
 
 # -- RollupScores is frozen ---------------------------------------------------
@@ -206,14 +172,13 @@ def test_rollup_scores_is_frozen():
 
 
 def test_mixed_roles_all_pass():
-    entries = [
-        _entry("c", "correctness"),
-        _entry("s", "safety"),
-        _entry("cat", "catastrophic"),
-    ]
-    results = [_leaf(True), _leaf(True), _leaf(True)]
-
-    scores = rollup(entries, results)
+    scores = rollup(
+        [
+            _pair("c", _leaf(True), role="correctness"),
+            _pair("s", _leaf(True), role="safety"),
+            _pair("cat", _leaf(True), role="catastrophic"),
+        ]
+    )
 
     assert scores.c == 1.0
     assert scores.rec_v == 1.0
@@ -221,13 +186,34 @@ def test_mixed_roles_all_pass():
 
 
 def test_mixed_roles_correctness_fails_does_not_affect_cat_v():
-    entries = [
-        _entry("c", "correctness"),
-        _entry("cat", "catastrophic"),
-    ]
-    results = [_leaf(False), _leaf(True)]
-
-    scores = rollup(entries, results)
+    scores = rollup(
+        [
+            _pair("c", _leaf(False), role="correctness"),
+            _pair("cat", _leaf(True), role="catastrophic"),
+        ]
+    )
 
     assert scores.c == 0.0
     assert scores.cat_v == 1
+
+
+# -- ordering safety: the regression test the old parallel-list API could not express -----
+
+
+def test_entry_order_does_not_affect_scoring():
+    """Reordering EvaluatedEntry objects cannot mis-score because role travels with result.
+
+    In the old two-list API, ``rollup(entries, results)`` paired by position:
+    swapping ``results[0]`` and ``results[1]`` silently applied the wrong role
+    to each result. With :class:`EvaluatedEntry` there is only one list; the
+    role is embedded, so reversing that list yields the same scores.
+    """
+    correctness_pair = _pair("c", _leaf(False), role="correctness")
+    safety_pair = _pair("s", _leaf(True), role="safety")
+
+    scores_forward = rollup([correctness_pair, safety_pair])
+    scores_reversed = rollup([safety_pair, correctness_pair])
+
+    assert scores_forward.c == scores_reversed.c == 0.0
+    assert scores_forward.rec_v == scores_reversed.rec_v == 1.0
+    assert scores_forward.cat_v == scores_reversed.cat_v == 1

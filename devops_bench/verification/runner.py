@@ -37,6 +37,7 @@ from pydantic import BaseModel
 
 from devops_bench.verification.base import BaseVerifier, VerificationResult
 from devops_bench.verification.entry import VerificationEntry
+from devops_bench.verification.rollup import EvaluatedEntry
 from devops_bench.verification.spec import (
     ParallelSpec,
     SequenceSpec,
@@ -135,7 +136,7 @@ class VerifierAgent:
         self,
         entry: VerificationEntry,
         timeout_sec: float = 120,
-    ) -> VerificationResult:
+    ) -> EvaluatedEntry:
         """Evaluate a typed entry with its role-derived default mode.
 
         ``entry.spec`` must already have placeholders substituted before this
@@ -147,12 +148,17 @@ class VerifierAgent:
             timeout_sec: Total wall-clock budget for the entry's spec tree.
 
         Returns:
-            The aggregated result for the entry's spec tree.
+            An :class:`~devops_bench.verification.rollup.EvaluatedEntry` pairing
+            the entry's role and name with its aggregated result tree. Bundling
+            the role with the result means the returned objects can be collected
+            in any order and passed to :func:`~devops_bench.verification.rollup.rollup`
+            without risk of pairing the wrong role to the wrong result.
         """
         node: Any = entry.spec if isinstance(entry.spec, BaseModel) else parse_node(entry.spec)
         default_mode = _ROLE_DEFAULT_MODE.get(entry.role, "converge")
         deadline = time.monotonic() + timeout_sec
-        return self._run(node, deadline, default_mode=default_mode)
+        result = self._run(node, deadline, default_mode=default_mode)
+        return EvaluatedEntry(name=entry.name, role=entry.role, result=result)
 
     def _run(self, node: Any, deadline: float, *, default_mode: str | None) -> VerificationResult:
         """Dispatch a node against the shared deadline."""

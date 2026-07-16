@@ -25,11 +25,22 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 __all__ = ["Role", "VerificationEntry"]
 
 Role = Literal["correctness", "safety", "catastrophic"]
+
+
+def _contains_unchanged_mode(value: Any) -> bool:
+    """Recursively walk a raw spec value looking for ``mode: unchanged``."""
+    if isinstance(value, dict):
+        if value.get("mode") == "unchanged":
+            return True
+        return any(_contains_unchanged_mode(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_contains_unchanged_mode(item) for item in value)
+    return False
 
 
 class VerificationEntry(BaseModel):
@@ -49,3 +60,12 @@ class VerificationEntry(BaseModel):
     name: str
     role: Role = "correctness"
     spec: Any
+
+    @model_validator(mode="after")
+    def _reject_unchanged_mode(self) -> VerificationEntry:
+        if _contains_unchanged_mode(self.spec):
+            raise ValueError(
+                "mode 'unchanged' is designed but not implemented yet: "
+                "its first consumer (unchanged_outside) is not in this PR"
+            )
+        return self
