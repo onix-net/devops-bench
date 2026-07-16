@@ -117,6 +117,16 @@ def test_eval_op_matches_regex():
     assert _eval_op("apache/2.4", "matches", r"nginx") is False
 
 
+def test_eval_op_matches_none_value_returns_false():
+    # str(None) == "None" which would match "on" without the guard.
+    assert _eval_op(None, "matches", "on") is False
+
+
+def test_eval_op_matches_none_value_never_matches_any_pattern():
+    assert _eval_op(None, "matches", "None") is False
+    assert _eval_op(None, "matches", ".*") is False
+
+
 def test_eval_op_numeric_comparison_with_non_numeric_returns_false():
     assert _eval_op("abc", "gt", 3) is False
 

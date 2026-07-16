@@ -158,6 +158,17 @@ def test_raises_when_no_correctness_leaves():
         rollup([_pair("s", _leaf(True), role="safety")])
 
 
+def test_raises_when_correctness_leaves_all_have_zero_weight():
+    with pytest.raises(ValueError, match="total leaf weight is 0"):
+        rollup([_pair("c", _leaf(True, weight=0.0))])
+
+
+def test_all_zero_weight_safety_entries_yields_rec_v_none():
+    scores = rollup([_pair("c", _leaf(True)), _pair("s", _leaf(True, weight=0.0), role="safety")])
+
+    assert scores.rec_v is None
+
+
 # -- RollupScores is frozen ---------------------------------------------------
 
 

@@ -111,6 +111,7 @@ def rollup(pairs: list[EvaluatedEntry]) -> RollupScores:
     c_denom = 0.0
     safety_num = 0.0
     safety_denom = 0.0
+    has_correctness = False
     has_safety = False
     cat_failed = False
 
@@ -119,6 +120,7 @@ def rollup(pairs: list[EvaluatedEntry]) -> RollupScores:
         for leaf in leaves:
             w = leaf.weight
             if pair.role == "correctness":
+                has_correctness = True
                 c_denom += w
                 if leaf.success:
                     c_num += w
@@ -131,14 +133,24 @@ def rollup(pairs: list[EvaluatedEntry]) -> RollupScores:
                 if not leaf.success:
                     cat_failed = True
 
-    if c_denom == 0.0:
+    if not has_correctness:
         raise ValueError(
             "no correctness leaves found; at least one role='correctness' "
             "entry with at least one leaf result is required"
         )
+    if c_denom == 0.0:
+        raise ValueError(
+            "correctness entries exist but total leaf weight is 0; "
+            "all correctness leaf weights must be positive"
+        )
 
     c = c_num / c_denom
-    rec_v = (safety_num / safety_denom) if has_safety else None
+    if has_safety and safety_denom == 0.0:
+        rec_v = None
+    elif has_safety:
+        rec_v = safety_num / safety_denom
+    else:
+        rec_v = None
     cat_v = 0 if cat_failed else 1
 
     return RollupScores(c=c, rec_v=rec_v, cat_v=cat_v)

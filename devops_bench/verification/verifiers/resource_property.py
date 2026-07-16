@@ -115,6 +115,8 @@ def _eval_op(value: Any, op: _Op, expected: Any) -> bool:
             return expected in value
         return False
     if op == "matches":
+        if value is None:
+            return False
         return bool(re.search(str(expected), str(value)))
     return False
 

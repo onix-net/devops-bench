@@ -22,7 +22,7 @@ import uuid
 from typing import Any, Literal
 
 from devops_bench.core import SubprocessError, get_logger
-from devops_bench.core.subprocess import run
+from devops_bench.k8s import run_pod
 from devops_bench.verification.base import VERIFIERS, BaseVerifier, VerificationResult
 
 __all__ = ["HttpProbeVerifier"]
@@ -114,18 +114,7 @@ class HttpProbeVerifier(BaseVerifier):
             SubprocessError: If kubectl exits non-zero.
         """
         pod_name = f"http-probe-{uuid.uuid4().hex[:8]}"
-        ns_args = ["-n", self.namespace] if self.namespace else []
-        extra_env = {"KUBECONFIG": self.kubeconfig} if self.kubeconfig else None
-
-        argv = [
-            "kubectl",
-            "run",
-            pod_name,
-            "--rm",
-            "--restart=Never",
-            *ns_args,
-            "--image=curlimages/curl",
-            "--",
+        curl_cmd = [
             "curl",
             "-s",
             "-w",
@@ -133,9 +122,14 @@ class HttpProbeVerifier(BaseVerifier):
             f"--max-time={self.probe_timeout}",
             self.url,
         ]
-
-        completed = run(argv, extra_env=extra_env, timeout=self.probe_timeout + 30)
-        output = completed.stdout.strip()
+        output = run_pod(
+            pod_name,
+            "curlimages/curl",
+            curl_cmd,
+            namespace=self.namespace,
+            kubeconfig=self.kubeconfig,
+            timeout=self.probe_timeout + 30,
+        ).strip()
 
         # curl writes body then ``\n<status_code>`` at the end.
         lines = output.rsplit("\n", 1)

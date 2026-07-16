@@ -222,8 +222,10 @@ class VerifierAgent:
             A failed result on the first failing sample; a successful result if
             every sample up to the window/deadline passes.
         """
-        window_sec: float = getattr(node, "hold_window_sec", None) or _DEFAULT_HOLD_WINDOW_SEC
-        interval_sec: float = getattr(node, "hold_interval_sec", None) or _DEFAULT_HOLD_INTERVAL_SEC
+        _window = getattr(node, "hold_window_sec", None)
+        window_sec: float = _window if _window is not None else _DEFAULT_HOLD_WINDOW_SEC
+        _interval = getattr(node, "hold_interval_sec", None)
+        interval_sec: float = _interval if _interval is not None else _DEFAULT_HOLD_INTERVAL_SEC
 
         start = time.monotonic()
         window_end = start + window_sec
@@ -244,9 +246,8 @@ class VerifierAgent:
             if now >= window_end or now >= deadline:
                 break
             sleep_time = min(interval_sec, window_end - now, deadline - now)
-            if sleep_time <= 0:
-                break
-            time.sleep(sleep_time)
+            if sleep_time > 0:
+                time.sleep(sleep_time)
 
         elapsed = time.monotonic() - start
         return VerificationResult(

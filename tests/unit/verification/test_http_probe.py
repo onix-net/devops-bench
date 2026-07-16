@@ -14,7 +14,9 @@
 
 """Unit tests for HttpProbeVerifier.
 
-The subprocess run call is mocked throughout; no real cluster required.
+run_pod is mocked throughout; no real cluster required. Command-shape tests
+patch the underlying devops_bench.k8s.kubectl.run to assert the full argv
+(including -i) that run_pod constructs.
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ from devops_bench.core import SubprocessError
 from devops_bench.verification.verifiers.http_probe import HttpProbeVerifier
 
 
-def _completed(stdout: str, returncode: int = 0) -> subprocess.CompletedProcess:
+def _kubectl_completed(stdout: str, returncode: int = 0) -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr="")
 
 
@@ -34,10 +36,9 @@ def _completed(stdout: str, returncode: int = 0) -> subprocess.CompletedProcess:
 
 
 def test_probe_succeeds_on_expected_status():
-    response = "hello world\n200"
     with patch(
-        "devops_bench.verification.verifiers.http_probe.run",
-        return_value=_completed(response),
+        "devops_bench.verification.verifiers.http_probe.run_pod",
+        return_value="hello world\n200",
     ):
         result = HttpProbeVerifier(url="http://svc/health").verify(timeout_sec=30)
 
@@ -47,10 +48,9 @@ def test_probe_succeeds_on_expected_status():
 
 
 def test_probe_fails_on_unexpected_status():
-    response = "error page\n503"
     with patch(
-        "devops_bench.verification.verifiers.http_probe.run",
-        return_value=_completed(response),
+        "devops_bench.verification.verifiers.http_probe.run_pod",
+        return_value="error page\n503",
     ):
         result = HttpProbeVerifier(url="http://svc/health").verify(timeout_sec=30)
 
@@ -59,10 +59,9 @@ def test_probe_fails_on_unexpected_status():
 
 
 def test_probe_fails_when_body_does_not_match():
-    response = "not the pattern\n200"
     with patch(
-        "devops_bench.verification.verifiers.http_probe.run",
-        return_value=_completed(response),
+        "devops_bench.verification.verifiers.http_probe.run_pod",
+        return_value="not the pattern\n200",
     ):
         result = HttpProbeVerifier(
             url="http://svc/health",
@@ -74,10 +73,9 @@ def test_probe_fails_when_body_does_not_match():
 
 
 def test_probe_succeeds_when_body_matches():
-    response = '{"status": "healthy"}\n200'
     with patch(
-        "devops_bench.verification.verifiers.http_probe.run",
-        return_value=_completed(response),
+        "devops_bench.verification.verifiers.http_probe.run_pod",
+        return_value='{"status": "healthy"}\n200',
     ):
         result = HttpProbeVerifier(
             url="http://svc/health",
@@ -88,10 +86,9 @@ def test_probe_succeeds_when_body_matches():
 
 
 def test_probe_uses_custom_expect_status():
-    response = "created\n201"
     with patch(
-        "devops_bench.verification.verifiers.http_probe.run",
-        return_value=_completed(response),
+        "devops_bench.verification.verifiers.http_probe.run_pod",
+        return_value="created\n201",
     ):
         result = HttpProbeVerifier(
             url="http://svc/items",
@@ -107,7 +104,7 @@ def test_probe_uses_custom_expect_status():
 def test_probe_fails_on_subprocess_error():
     exc = SubprocessError(["kubectl", "run"], returncode=1, stdout="", stderr="timeout")
     with patch(
-        "devops_bench.verification.verifiers.http_probe.run",
+        "devops_bench.verification.verifiers.http_probe.run_pod",
         side_effect=exc,
     ):
         result = HttpProbeVerifier(url="http://svc/health").verify(timeout_sec=30)
@@ -121,27 +118,26 @@ def test_probe_fails_on_subprocess_error():
 
 
 def test_probe_fails_on_unparseable_status():
-    response = "output without status"
     with patch(
-        "devops_bench.verification.verifiers.http_probe.run",
-        return_value=_completed(response),
+        "devops_bench.verification.verifiers.http_probe.run_pod",
+        return_value="output without status",
     ):
         result = HttpProbeVerifier(url="http://svc/health").verify(timeout_sec=30)
 
     assert result.success is False
 
 
-# -- kubectl command shape ----------------------------------------------------
+# -- kubectl command shape (asserts -i and curl args in the full argv) --------
 
 
-def test_probe_command_includes_url_and_namespace():
+def test_probe_command_includes_i_flag_and_url_and_namespace():
     captured_argv: list[list[str]] = []
 
-    def fake_run(argv, **kwargs):
+    def fake_kubectl_run(argv, **kwargs):
         captured_argv.append(argv)
-        return _completed("ok\n200")
+        return _kubectl_completed("ok\n200")
 
-    with patch("devops_bench.verification.verifiers.http_probe.run", fake_run):
+    with patch("devops_bench.k8s.kubectl.run", fake_kubectl_run):
         HttpProbeVerifier(
             url="http://backend/health",
             namespace="staging",
@@ -151,25 +147,43 @@ def test_probe_command_includes_url_and_namespace():
     assert "kubectl" in argv
     assert "run" in argv
     assert "--rm" in argv
+    assert "-i" in argv
     assert "--restart=Never" in argv
     assert "-n" in argv
     assert "staging" in argv
     assert "http://backend/health" in argv
-    assert "curlimages/curl" in " ".join(argv)
+    assert any("curlimages/curl" in arg for arg in argv)
 
 
 def test_probe_command_omits_namespace_when_not_set():
     captured_argv: list[list[str]] = []
 
-    def fake_run(argv, **kwargs):
+    def fake_kubectl_run(argv, **kwargs):
         captured_argv.append(argv)
-        return _completed("ok\n200")
+        return _kubectl_completed("ok\n200")
 
-    with patch("devops_bench.verification.verifiers.http_probe.run", fake_run):
+    with patch("devops_bench.k8s.kubectl.run", fake_kubectl_run):
         HttpProbeVerifier(url="http://svc/health").verify(timeout_sec=30)
 
     argv = captured_argv[0]
     assert "-n" not in argv
+
+
+def test_probe_command_includes_curl_args():
+    captured_argv: list[list[str]] = []
+
+    def fake_kubectl_run(argv, **kwargs):
+        captured_argv.append(argv)
+        return _kubectl_completed("ok\n200")
+
+    with patch("devops_bench.k8s.kubectl.run", fake_kubectl_run):
+        HttpProbeVerifier(url="http://svc/health", probe_timeout=15).verify(timeout_sec=30)
+
+    argv = captured_argv[0]
+    assert "curl" in argv
+    assert "-s" in argv
+    assert "--max-time=15" in argv
+    assert r"\n%{http_code}" in argv
 
 
 # -- result metadata ----------------------------------------------------------
@@ -177,8 +191,8 @@ def test_probe_command_omits_namespace_when_not_set():
 
 def test_probe_echoes_weight_onto_result():
     with patch(
-        "devops_bench.verification.verifiers.http_probe.run",
-        return_value=_completed("ok\n200"),
+        "devops_bench.verification.verifiers.http_probe.run_pod",
+        return_value="ok\n200",
     ):
         result = HttpProbeVerifier(url="http://svc/health", weight=2.5).verify(timeout_sec=30)
 
@@ -187,8 +201,8 @@ def test_probe_echoes_weight_onto_result():
 
 def test_probe_echoes_name_onto_result():
     with patch(
-        "devops_bench.verification.verifiers.http_probe.run",
-        return_value=_completed("ok\n200"),
+        "devops_bench.verification.verifiers.http_probe.run_pod",
+        return_value="ok\n200",
     ):
         result = HttpProbeVerifier(url="http://svc/health", name="liveness").verify(timeout_sec=30)
 
