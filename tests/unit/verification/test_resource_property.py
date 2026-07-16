@@ -135,8 +135,20 @@ def test_eval_op_numeric_comparison_with_non_numeric_returns_false():
 
 
 def test_requires_name_or_selector():
-    with pytest.raises(ValidationError, match="one of"):
+    with pytest.raises(ValidationError, match="exactly one of"):
         ResourcePropertyVerifier(kind="deployment", path="spec.replicas", op="eq", value=2)
+
+
+def test_rejects_both_name_and_selector():
+    with pytest.raises(ValidationError, match="exactly one of"):
+        ResourcePropertyVerifier(
+            kind="deployment",
+            name="web",
+            selector="app=web",
+            path="spec.replicas",
+            op="eq",
+            value=2,
+        )
 
 
 def test_accepts_name():

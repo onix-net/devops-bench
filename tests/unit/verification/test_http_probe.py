@@ -114,6 +114,26 @@ def test_probe_fails_on_subprocess_error():
     assert "timeout" in result.reason
 
 
+# -- empty-body responses (e.g. 204 No Content) ------------------------------
+
+
+def test_probe_empty_body_status_204():
+    # curl -w '\n%{http_code}' on an empty body produces "\n204".
+    # .rstrip() preserves the leading newline so rsplit('\n', 1) gives
+    # ['', '204'] and the parse succeeds. .strip() would eat it and fail.
+    with patch(
+        "devops_bench.verification.verifiers.http_probe.run_pod",
+        return_value="\n204",
+    ):
+        result = HttpProbeVerifier(url="http://svc/status", expect_status=204).verify(
+            timeout_sec=30
+        )
+
+    assert result.success is True
+    assert result.raw["status_code"] == 204
+    assert result.raw["body_length"] == 0
+
+
 # -- malformed curl output ----------------------------------------------------
 
 

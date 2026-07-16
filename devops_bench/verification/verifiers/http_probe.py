@@ -129,7 +129,7 @@ class HttpProbeVerifier(BaseVerifier):
             namespace=self.namespace,
             kubeconfig=self.kubeconfig,
             timeout=self.probe_timeout + 30,
-        ).strip()
+        ).rstrip()
 
         # curl writes body then ``\n<status_code>`` at the end.
         lines = output.rsplit("\n", 1)

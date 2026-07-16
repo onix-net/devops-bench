@@ -162,8 +162,8 @@ class ResourcePropertyVerifier(BaseVerifier):
     @model_validator(mode="after")
     def _require_name_or_selector(self) -> ResourcePropertyVerifier:
         """Ensure exactly one of ``name`` or ``selector`` is provided."""
-        if self.name is None and self.selector is None:
-            raise ValueError("one of 'name' or 'selector' is required")
+        if (self.name is None) == (self.selector is None):
+            raise ValueError("exactly one of 'name' or 'selector' is required")
         return self
 
     def verify(self, timeout_sec: float) -> VerificationResult:
