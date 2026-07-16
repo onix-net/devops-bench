@@ -57,7 +57,8 @@ def test_assert_mode_calls_verify_with_zero_timeout():
     with patch.object(ScalingCompleteVerifier, "verify", fake_verify):
         entry = VerificationEntry(
             name="check",
-            role="safety",
+            role="constraint",
+            severity="recoverable",
             spec={"type": "scaling_complete", "deployment": "web"},
         )
         VerifierAgent().run_entry(entry, timeout_sec=30)
@@ -76,7 +77,7 @@ def test_assert_mode_via_explicit_leaf_mode():
     with patch.object(ScalingCompleteVerifier, "verify", fake_verify):
         entry = VerificationEntry(
             name="check",
-            role="correctness",
+            role="objective",
             spec={"type": "scaling_complete", "deployment": "web", "mode": "assert"},
         )
         VerifierAgent().run_entry(entry, timeout_sec=30)
@@ -97,7 +98,7 @@ def test_converge_mode_passes_remaining_timeout():
     with patch.object(ScalingCompleteVerifier, "verify", fake_verify):
         entry = VerificationEntry(
             name="check",
-            role="correctness",
+            role="objective",
             spec={"type": "scaling_complete", "deployment": "web"},
         )
         VerifierAgent().run_entry(entry, timeout_sec=30)
@@ -109,7 +110,7 @@ def test_converge_mode_passes_remaining_timeout():
 # -- default mode from role ---------------------------------------------------
 
 
-def test_correctness_role_defaults_to_converge():
+def test_objective_role_defaults_to_converge():
     timeouts: list[float] = []
 
     def fake_verify(self: Any, timeout_sec: float) -> VerificationResult:
@@ -119,7 +120,7 @@ def test_correctness_role_defaults_to_converge():
     with patch.object(ScalingCompleteVerifier, "verify", fake_verify):
         entry = VerificationEntry(
             name="check",
-            role="correctness",
+            role="objective",
             spec={"type": "scaling_complete", "deployment": "web"},
         )
         VerifierAgent().run_entry(entry, timeout_sec=60)
@@ -128,7 +129,7 @@ def test_correctness_role_defaults_to_converge():
     assert timeouts[0] > 50.0
 
 
-def test_safety_role_defaults_to_assert():
+def test_recoverable_constraint_role_defaults_to_assert():
     timeouts: list[float] = []
 
     def fake_verify(self: Any, timeout_sec: float) -> VerificationResult:
@@ -138,7 +139,8 @@ def test_safety_role_defaults_to_assert():
     with patch.object(ScalingCompleteVerifier, "verify", fake_verify):
         entry = VerificationEntry(
             name="check",
-            role="safety",
+            role="constraint",
+            severity="recoverable",
             spec={"type": "scaling_complete", "deployment": "web"},
         )
         VerifierAgent().run_entry(entry, timeout_sec=30)
@@ -146,7 +148,7 @@ def test_safety_role_defaults_to_assert():
     assert timeouts[0] == 0.0
 
 
-def test_catastrophic_role_defaults_to_assert():
+def test_catastrophic_constraint_role_defaults_to_assert():
     timeouts: list[float] = []
 
     def fake_verify(self: Any, timeout_sec: float) -> VerificationResult:
@@ -156,7 +158,8 @@ def test_catastrophic_role_defaults_to_assert():
     with patch.object(ScalingCompleteVerifier, "verify", fake_verify):
         entry = VerificationEntry(
             name="check",
-            role="catastrophic",
+            role="constraint",
+            severity="catastrophic",
             spec={"type": "scaling_complete", "deployment": "web"},
         )
         VerifierAgent().run_entry(entry, timeout_sec=30)
@@ -182,7 +185,7 @@ def test_hold_mode_samples_multiple_times():
     ):
         entry = VerificationEntry(
             name="check",
-            role="correctness",
+            role="objective",
             spec={
                 "type": "scaling_complete",
                 "deployment": "web",
@@ -213,7 +216,7 @@ def test_hold_mode_fails_on_first_failing_sample():
     ):
         entry = VerificationEntry(
             name="check",
-            role="correctness",
+            role="objective",
             spec={
                 "type": "scaling_complete",
                 "deployment": "web",
@@ -254,7 +257,7 @@ def test_hold_mode_does_not_sleep_between_window_end_and_deadline():
     ):
         entry = VerificationEntry(
             name="check",
-            role="correctness",
+            role="objective",
             spec={
                 "type": "scaling_complete",
                 "deployment": "web",
@@ -281,7 +284,7 @@ def test_unchanged_mode_fails_at_entry_construction():
     with pytest.raises(ValidationError, match="unchanged"):
         VerificationEntry(
             name="check",
-            role="correctness",
+            role="objective",
             spec={
                 "type": "scaling_complete",
                 "deployment": "web",
@@ -293,7 +296,7 @@ def test_unchanged_mode_fails_at_entry_construction():
 # -- explicit mode overrides role default -------------------------------------
 
 
-def test_explicit_converge_overrides_safety_role_default():
+def test_explicit_converge_overrides_constraint_role_default():
     timeouts: list[float] = []
 
     def fake_verify(self: Any, timeout_sec: float) -> VerificationResult:
@@ -303,7 +306,8 @@ def test_explicit_converge_overrides_safety_role_default():
     with patch.object(ScalingCompleteVerifier, "verify", fake_verify):
         entry = VerificationEntry(
             name="check",
-            role="safety",
+            role="constraint",
+            severity="recoverable",
             spec={"type": "scaling_complete", "deployment": "web", "mode": "converge"},
         )
         VerifierAgent().run_entry(entry, timeout_sec=30)
@@ -312,7 +316,7 @@ def test_explicit_converge_overrides_safety_role_default():
     assert timeouts[0] > 20.0
 
 
-def test_explicit_assert_overrides_correctness_role_default():
+def test_explicit_assert_overrides_objective_role_default():
     timeouts: list[float] = []
 
     def fake_verify(self: Any, timeout_sec: float) -> VerificationResult:
@@ -322,7 +326,7 @@ def test_explicit_assert_overrides_correctness_role_default():
     with patch.object(ScalingCompleteVerifier, "verify", fake_verify):
         entry = VerificationEntry(
             name="check",
-            role="correctness",
+            role="objective",
             spec={"type": "scaling_complete", "deployment": "web", "mode": "assert"},
         )
         VerifierAgent().run_entry(entry, timeout_sec=30)

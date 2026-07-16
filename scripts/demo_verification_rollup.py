@@ -214,7 +214,7 @@ def _make_entries(deployment_name: str) -> list[VerificationEntry]:
     return [
         VerificationEntry(
             name="ready-replicas",
-            role="correctness",
+            role="objective",
             spec={
                 "type": "resource_property",
                 "kind": "deployment",
@@ -227,7 +227,8 @@ def _make_entries(deployment_name: str) -> list[VerificationEntry]:
         ),
         VerificationEntry(
             name="readiness-probe-present",
-            role="safety",
+            role="constraint",
+            severity="recoverable",
             spec={
                 "type": "resource_property",
                 "kind": "deployment",
@@ -239,7 +240,8 @@ def _make_entries(deployment_name: str) -> list[VerificationEntry]:
         ),
         VerificationEntry(
             name="coredns-healthy",
-            role="catastrophic",
+            role="constraint",
+            severity="catastrophic",
             spec={
                 "type": "resource_property",
                 "kind": "deployment",

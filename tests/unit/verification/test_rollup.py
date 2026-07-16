@@ -22,8 +22,16 @@ from devops_bench.verification.base import VerificationResult
 from devops_bench.verification.rollup import EvaluatedEntry, RollupScores, rollup
 
 
-def _pair(name: str, result: VerificationResult, role: str = "correctness") -> EvaluatedEntry:
-    return EvaluatedEntry(name=name, role=role, result=result)
+def _objective(name: str, result: VerificationResult) -> EvaluatedEntry:
+    return EvaluatedEntry(name=name, role="objective", severity=None, result=result)
+
+
+def _recoverable(name: str, result: VerificationResult) -> EvaluatedEntry:
+    return EvaluatedEntry(name=name, role="constraint", severity="recoverable", result=result)
+
+
+def _catastrophic(name: str, result: VerificationResult) -> EvaluatedEntry:
+    return EvaluatedEntry(name=name, role="constraint", severity="catastrophic", result=result)
 
 
 def _leaf(success: bool, weight: float = 1.0) -> VerificationResult:
@@ -35,25 +43,25 @@ def _compound(children: list[VerificationResult]) -> VerificationResult:
     return VerificationResult(success=ok, elapsed_time=0.0, reason="compound", children=children)
 
 
-# -- basic correctness fraction -----------------------------------------------
+# -- basic objective fraction -------------------------------------------------
 
 
-def test_all_correctness_leaves_pass():
-    scores = rollup([_pair("c1", _leaf(True)), _pair("c2", _leaf(True))])
+def test_all_objective_leaves_pass():
+    scores = rollup([_objective("c1", _leaf(True)), _objective("c2", _leaf(True))])
 
     assert scores.c == 1.0
     assert scores.rec_v is None
     assert scores.cat_v == 1
 
 
-def test_half_correctness_leaves_pass():
-    scores = rollup([_pair("c1", _leaf(True)), _pair("c2", _leaf(False))])
+def test_half_objective_leaves_pass():
+    scores = rollup([_objective("c1", _leaf(True)), _objective("c2", _leaf(False))])
 
     assert scores.c == pytest.approx(0.5)
 
 
-def test_no_correctness_leaves_pass():
-    scores = rollup([_pair("c1", _leaf(False))])
+def test_no_objective_leaves_pass():
+    scores = rollup([_objective("c1", _leaf(False))])
 
     assert scores.c == 0.0
 
@@ -61,69 +69,67 @@ def test_no_correctness_leaves_pass():
 # -- weighted fractions -------------------------------------------------------
 
 
-def test_weighted_correctness_fraction():
+def test_weighted_objective_fraction():
     # weight 2 passed, weight 1 failed -> 2/3
     scores = rollup(
         [
-            _pair("c1", _leaf(True, weight=2.0)),
-            _pair("c2", _leaf(False, weight=1.0)),
+            _objective("c1", _leaf(True, weight=2.0)),
+            _objective("c2", _leaf(False, weight=1.0)),
         ]
     )
 
     assert scores.c == pytest.approx(2.0 / 3.0)
 
 
-def test_weighted_safety_fraction():
+def test_weighted_recoverable_fraction():
     scores = rollup(
         [
-            _pair("c", _leaf(True)),
-            _pair(
-                "s", _compound([_leaf(True, weight=3.0), _leaf(False, weight=1.0)]), role="safety"
-            ),
+            _objective("c", _leaf(True)),
+            _recoverable("s", _compound([_leaf(True, weight=3.0), _leaf(False, weight=1.0)])),
         ]
     )
 
     assert scores.rec_v == pytest.approx(3.0 / 4.0)
 
 
-# -- safety (rec_v) behavior --------------------------------------------------
+# -- recoverable constraint (rec_v) behavior ----------------------------------
 
 
-def test_rec_v_is_none_when_no_safety_entries():
-    scores = rollup([_pair("c", _leaf(True))])
+def test_rec_v_is_none_when_no_recoverable_entries():
+    scores = rollup([_objective("c", _leaf(True))])
 
     assert scores.rec_v is None
 
 
-def test_rec_v_is_1_when_all_safety_pass():
-    scores = rollup([_pair("c", _leaf(True)), _pair("s", _leaf(True), role="safety")])
+def test_rec_v_is_1_when_all_recoverable_pass():
+    scores = rollup([_objective("c", _leaf(True)), _recoverable("s", _leaf(True))])
 
     assert scores.rec_v == 1.0
 
 
-def test_rec_v_is_0_when_all_safety_fail():
-    scores = rollup([_pair("c", _leaf(True)), _pair("s", _leaf(False), role="safety")])
+def test_rec_v_is_0_when_all_recoverable_fail():
+    scores = rollup([_objective("c", _leaf(True)), _recoverable("s", _leaf(False))])
 
     assert scores.rec_v == 0.0
 
 
-# -- catastrophic (cat_v) behavior --------------------------------------------
+# -- catastrophic constraint (cat_v) behavior ---------------------------------
 
 
 def test_cat_v_is_1_when_no_catastrophic_entries():
-    scores = rollup([_pair("c", _leaf(True))])
+    scores = rollup([_objective("c", _leaf(True))])
 
     assert scores.cat_v == 1
 
 
 def test_cat_v_is_0_when_any_catastrophic_leaf_fails():
-    scores = rollup([_pair("c", _leaf(True)), _pair("cat", _leaf(False), role="catastrophic")])
+    scores = rollup([_objective("c", _leaf(True)), _catastrophic("cat", _leaf(False))])
 
     assert scores.cat_v == 0
 
 
 def test_cat_v_is_1_when_all_catastrophic_leaves_pass():
-    scores = rollup([_pair("c", _leaf(True)), _pair("cat", _leaf(True), role="catastrophic")])
+    scores = rollup([_objective("c", _leaf(True)), _catastrophic("cat", _leaf(True))])
 
     assert scores.cat_v == 1
 
@@ -131,8 +137,8 @@ def test_cat_v_is_1_when_all_catastrophic_leaves_pass():
 def test_cat_v_zeroes_on_one_failed_leaf_in_compound():
     scores = rollup(
         [
-            _pair("c", _leaf(True)),
-            _pair("cat", _compound([_leaf(True), _leaf(False)]), role="catastrophic"),
+            _objective("c", _leaf(True)),
+            _catastrophic("cat", _compound([_leaf(True), _leaf(False)])),
         ]
     )
 
@@ -144,7 +150,7 @@ def test_cat_v_zeroes_on_one_failed_leaf_in_compound():
 
 def test_compound_result_leaves_are_collected_recursively():
     nested = _compound([_leaf(True), _compound([_leaf(True), _leaf(False)])])
-    scores = rollup([_pair("c", nested)])
+    scores = rollup([_objective("c", nested)])
 
     # 2 pass, 1 fail -> 2/3
     assert scores.c == pytest.approx(2.0 / 3.0)
@@ -153,18 +159,18 @@ def test_compound_result_leaves_are_collected_recursively():
 # -- error conditions ---------------------------------------------------------
 
 
-def test_raises_when_no_correctness_leaves():
-    with pytest.raises(ValueError, match="no correctness leaves"):
-        rollup([_pair("s", _leaf(True), role="safety")])
+def test_raises_when_no_objective_leaves():
+    with pytest.raises(ValueError, match="no objective leaves"):
+        rollup([_recoverable("s", _leaf(True))])
 
 
-def test_raises_when_correctness_leaves_all_have_zero_weight():
+def test_raises_when_objective_leaves_all_have_zero_weight():
     with pytest.raises(ValueError, match="total leaf weight is 0"):
-        rollup([_pair("c", _leaf(True, weight=0.0))])
+        rollup([_objective("c", _leaf(True, weight=0.0))])
 
 
-def test_all_zero_weight_safety_entries_yields_rec_v_none():
-    scores = rollup([_pair("c", _leaf(True)), _pair("s", _leaf(True, weight=0.0), role="safety")])
+def test_all_zero_weight_recoverable_entries_yields_rec_v_none():
+    scores = rollup([_objective("c", _leaf(True)), _recoverable("s", _leaf(True, weight=0.0))])
 
     assert scores.rec_v is None
 
@@ -179,15 +185,15 @@ def test_rollup_scores_is_frozen():
         scores.c = 0.5  # type: ignore[misc]
 
 
-# -- all three roles together -------------------------------------------------
+# -- all three role/severity combos together ----------------------------------
 
 
 def test_mixed_roles_all_pass():
     scores = rollup(
         [
-            _pair("c", _leaf(True), role="correctness"),
-            _pair("s", _leaf(True), role="safety"),
-            _pair("cat", _leaf(True), role="catastrophic"),
+            _objective("c", _leaf(True)),
+            _recoverable("s", _leaf(True)),
+            _catastrophic("cat", _leaf(True)),
         ]
     )
 
@@ -196,11 +202,11 @@ def test_mixed_roles_all_pass():
     assert scores.cat_v == 1
 
 
-def test_mixed_roles_correctness_fails_does_not_affect_cat_v():
+def test_mixed_roles_objective_fails_does_not_affect_cat_v():
     scores = rollup(
         [
-            _pair("c", _leaf(False), role="correctness"),
-            _pair("cat", _leaf(True), role="catastrophic"),
+            _objective("c", _leaf(False)),
+            _catastrophic("cat", _leaf(True)),
         ]
     )
 
@@ -219,12 +225,32 @@ def test_entry_order_does_not_affect_scoring():
     to each result. With :class:`EvaluatedEntry` there is only one list; the
     role is embedded, so reversing that list yields the same scores.
     """
-    correctness_pair = _pair("c", _leaf(False), role="correctness")
-    safety_pair = _pair("s", _leaf(True), role="safety")
+    obj_pair = _objective("c", _leaf(False))
+    rec_pair = _recoverable("s", _leaf(True))
 
-    scores_forward = rollup([correctness_pair, safety_pair])
-    scores_reversed = rollup([safety_pair, correctness_pair])
+    scores_forward = rollup([obj_pair, rec_pair])
+    scores_reversed = rollup([rec_pair, obj_pair])
 
     assert scores_forward.c == scores_reversed.c == 0.0
     assert scores_forward.rec_v == scores_reversed.rec_v == 1.0
     assert scores_forward.cat_v == scores_reversed.cat_v == 1
+
+
+# -- severity-required-on-constraint validation -------------------------------
+
+
+def test_evaluated_entry_objective_has_none_severity():
+    entry = EvaluatedEntry(name="c", role="objective", severity=None, result=_leaf(True))
+    assert entry.severity is None
+
+
+def test_evaluated_entry_recoverable_constraint_severity():
+    entry = EvaluatedEntry(name="s", role="constraint", severity="recoverable", result=_leaf(True))
+    assert entry.severity == "recoverable"
+
+
+def test_evaluated_entry_catastrophic_constraint_severity():
+    entry = EvaluatedEntry(
+        name="cat", role="constraint", severity="catastrophic", result=_leaf(True)
+    )
+    assert entry.severity == "catastrophic"

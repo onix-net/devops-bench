@@ -61,9 +61,8 @@ _DEFAULT_HOLD_INTERVAL_SEC = 5.0
 # Default mode inferred from a VerificationEntry's role when the leaf carries
 # no explicit ``mode``. Explicit mode on the leaf always wins.
 _ROLE_DEFAULT_MODE: dict[str, str] = {
-    "correctness": "converge",
-    "safety": "assert",
-    "catastrophic": "assert",
+    "objective": "converge",
+    "constraint": "assert",
 }
 
 
@@ -158,7 +157,9 @@ class VerifierAgent:
         default_mode = _ROLE_DEFAULT_MODE.get(entry.role, "converge")
         deadline = time.monotonic() + timeout_sec
         result = self._run(node, deadline, default_mode=default_mode)
-        return EvaluatedEntry(name=entry.name, role=entry.role, result=result)
+        return EvaluatedEntry(
+            name=entry.name, role=entry.role, severity=entry.severity, result=result
+        )
 
     def _run(self, node: Any, deadline: float, *, default_mode: str | None) -> VerificationResult:
         """Dispatch a node against the shared deadline."""

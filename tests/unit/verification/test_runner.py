@@ -453,7 +453,7 @@ def test_hold_zero_interval_samples_multiple_times():
     ):
         entry = VerificationEntry(
             name="check",
-            role="correctness",
+            role="objective",
             spec={
                 "type": "scaling_complete",
                 "deployment": "web",
@@ -483,7 +483,7 @@ def test_hold_zero_window_gives_single_sample():
     with patch.object(ScalingCompleteVerifier, "verify", fake_verify):
         entry = VerificationEntry(
             name="check",
-            role="correctness",
+            role="objective",
             spec={
                 "type": "scaling_complete",
                 "deployment": "web",
