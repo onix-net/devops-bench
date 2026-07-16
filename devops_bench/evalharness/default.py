@@ -477,10 +477,14 @@ class DefaultEvalHarness(Harness):
         # objects at load time. Placeholders live inside entry.spec (still raw dicts).
         if isinstance(raw, list) and raw and isinstance(raw[0], VerificationEntry):
             for entry in raw:
-                spec_resolved = self._resolve_spec_placeholders(
-                    entry.spec, cluster_name, target_deployment, namespace
-                )
                 try:
+                    spec_resolved = self._resolve_spec_placeholders(
+                        entry.spec, cluster_name, target_deployment, namespace
+                    )
+                    if entry.name in mapping:
+                        _log.warning(
+                            "duplicate verification entry name %r; overwriting", entry.name
+                        )
                     mapping[entry.name] = VerificationSpec(spec_resolved)
                 except Exception as exc:  # noqa: BLE001 - surface every failure
                     _log.warning(
@@ -522,6 +526,8 @@ class DefaultEvalHarness(Harness):
             # a ``spec`` key is itself treated as the typed node.
             node = entry.get("spec") if "spec" in entry else entry
             try:
+                if name in mapping:
+                    _log.warning("duplicate verification entry name %r; overwriting", name)
                 mapping[name] = VerificationSpec(node)
             except Exception as exc:  # noqa: BLE001 - surface every failure
                 _log.warning(
@@ -967,7 +973,7 @@ class DefaultEvalHarness(Harness):
             "retrieval_context": list(task.retrieval_context),
             "chaos_spec": task.chaos_spec,
             "verification_spec": (
-                [e.model_dump() for e in task.verification_spec]
+                [e.model_dump() if hasattr(e, "model_dump") else e for e in task.verification_spec]
                 if task.verification_spec is not None
                 else None
             ),

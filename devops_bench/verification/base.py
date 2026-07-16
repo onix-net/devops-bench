@@ -64,7 +64,10 @@ class VerificationResult(BaseModel):
         raw: Leaf-only kubectl diagnostics or supporting data.
         weight: Contribution weight used by the rollup; default 1.0. Echoed
             from the originating leaf's :attr:`BaseVerifier.weight` so the
-            result tree is self-describing for downstream scoring.
+            result tree is self-describing for downstream scoring. A custom
+            verifier overriding :meth:`BaseVerifier.verify` and constructing
+            this result directly must pass ``weight=self.weight``; omitting it
+            silently loses the configured weight from the result tree.
     """
 
     success: bool
