@@ -26,9 +26,11 @@ from __future__ import annotations
 import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import wait as futures_wait
-from typing import Any, Literal
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Literal
 
 from devops_bench.verification.base import BaseVerifier, VerificationResult
+from devops_bench.verification.rollup import EvaluatedEntry
 from devops_bench.verification.spec import (
     AllSpec,
     AnySpec,
@@ -38,6 +40,9 @@ from devops_bench.verification.spec import (
     VerificationSpec,
 )
 
+if TYPE_CHECKING:
+    from devops_bench.tasks.schema import VerificationEntry
+
 __all__ = ["VerifierAgent"]
 
 _MAX_PARALLEL_WORKERS = 8
@@ -46,6 +51,34 @@ _MAX_PARALLEL_WORKERS = 8
 # short-circuited as timed out. Avoids issuing useless ``kubectl wait
 # --timeout=0.001s`` calls at the tail of the budget.
 _MIN_LEAF_BUDGET_SECONDS = 1.0
+
+# Hold-mode defaults used when an entry does not override the window / interval.
+_DEFAULT_HOLD_WINDOW_SEC = 30.0
+_DEFAULT_HOLD_INTERVAL_SEC = 5.0
+
+# Default evaluation mode inferred from an entry's role when it sets no explicit
+# ``mode``. An explicit mode on the entry always wins.
+_DEFAULT_MODE_FOR_ROLE: dict[str, str] = {"objective": "converge", "safeguard": "assert"}
+
+
+@dataclass(frozen=True)
+class _ModeCtx:
+    """Per-entry evaluation context threaded through the dispatch tree.
+
+    ``mode`` is ``None`` on the ``wait_for_condition`` (chaos) path, which means
+    "converge" at the leaf — preserving that method's original behavior exactly.
+    """
+
+    mode: str | None
+    hold_window_sec: float
+    hold_poll_interval_sec: float
+
+
+_CONVERGE_CTX = _ModeCtx(
+    mode=None,
+    hold_window_sec=_DEFAULT_HOLD_WINDOW_SEC,
+    hold_poll_interval_sec=_DEFAULT_HOLD_INTERVAL_SEC,
+)
 
 
 def _node_name(node: Any) -> str | None:
@@ -106,33 +139,133 @@ class VerifierAgent:
             node = VerificationSpec(spec).root  # raw mapping -> parse
 
         deadline = time.monotonic() + timeout_sec
-        return self._run(node, deadline)
+        return self._run(node, deadline, ctx=_CONVERGE_CTX)
 
-    def _run(self, node: Any, deadline: float) -> VerificationResult:
-        """Dispatch a node against the shared deadline."""
+    def run_entry(
+        self,
+        entry: VerificationEntry,
+        node: Any,
+        timeout_sec: float = 120,
+    ) -> EvaluatedEntry:
+        """Evaluate one already-parsed entry check under the entry's mode.
+
+        The caller substitutes placeholders in ``entry.check`` and parses it into
+        ``node`` before this call (mirroring how the harness resolves specs). The
+        effective mode is the entry's explicit ``mode`` or, if unset, the default
+        for its role. Hold window / interval fall back to module defaults.
+
+        Args:
+            entry: The typed verification entry (metadata only is read here).
+            node: The parsed check tree for ``entry.check``.
+            timeout_sec: Total wall-clock budget for this entry's evaluation.
+
+        Returns:
+            An :class:`~devops_bench.verification.rollup.EvaluatedEntry` pairing
+            the entry's role/severity/weight with its aggregated result, safe to
+            collect in any order for :func:`~devops_bench.verification.rollup.rollup`.
+        """
+        mode = entry.mode or _DEFAULT_MODE_FOR_ROLE[entry.role]
+        window = (
+            entry.hold_window_sec if entry.hold_window_sec is not None else _DEFAULT_HOLD_WINDOW_SEC
+        )
+        interval = (
+            entry.hold_poll_interval_sec
+            if entry.hold_poll_interval_sec is not None
+            else _DEFAULT_HOLD_INTERVAL_SEC
+        )
+        ctx = _ModeCtx(mode=mode, hold_window_sec=window, hold_poll_interval_sec=interval)
+        deadline = time.monotonic() + timeout_sec
+        result = self._run(node, deadline, ctx=ctx)
+        return EvaluatedEntry(
+            name=entry.name,
+            role=entry.role,
+            severity=entry.severity,
+            weight=entry.weight,
+            result=result,
+        )
+
+    def _run(self, node: Any, deadline: float, *, ctx: _ModeCtx) -> VerificationResult:
+        """Dispatch a node against the shared deadline under a mode context."""
         if isinstance(node, SequenceSpec):
-            return self._run_sequence(node, deadline)
+            return self._run_sequence(node, deadline, ctx=ctx)
         if isinstance(node, ParallelSpec | AllSpec):
-            return self._run_quantified(node, deadline, "all")
+            return self._run_quantified(node, deadline, "all", ctx=ctx)
         if isinstance(node, AnySpec):
-            return self._run_quantified(node, deadline, "any")
+            return self._run_quantified(node, deadline, "any", ctx=ctx)
         if isinstance(node, NoneSpec):
-            return self._run_quantified(node, deadline, "none")
-        return self._run_leaf(node, deadline)
+            return self._run_quantified(node, deadline, "none", ctx=ctx)
+        return self._run_leaf(node, deadline, ctx=ctx)
 
-    def _run_leaf(self, node: Any, deadline: float) -> VerificationResult:
-        """Run a leaf verifier with whatever budget remains on the deadline.
+    def _run_leaf(self, node: Any, deadline: float, *, ctx: _ModeCtx) -> VerificationResult:
+        """Run a leaf verifier under the entry's evaluation mode.
 
         Short-circuits when the remaining budget is below
         :data:`_MIN_LEAF_BUDGET_SECONDS` so we never issue a useless
-        sub-second ``kubectl wait`` at the tail of the deadline.
+        sub-second ``kubectl wait`` at the tail of the deadline. ``assert``
+        evaluates once with a zero budget; ``hold`` samples over a window;
+        ``converge`` (and the ``None`` mode used by the chaos path) hands the
+        leaf the full remaining budget — the original behavior.
         """
         remaining = deadline - time.monotonic()
         if remaining < _MIN_LEAF_BUDGET_SECONDS:
             return _timed_out(node, "deadline exhausted before evaluation")
+        if ctx.mode == "assert":
+            return node.verify(0.0)
+        if ctx.mode == "hold":
+            return self._hold(node, deadline, ctx.hold_window_sec, ctx.hold_poll_interval_sec)
         return node.verify(remaining)
 
-    def _run_sequence(self, node: SequenceSpec, deadline: float) -> VerificationResult:
+    def _hold(
+        self, node: Any, deadline: float, window_sec: float, interval_sec: float
+    ) -> VerificationResult:
+        """Sample ``node.verify(0)`` repeatedly; every sample must pass.
+
+        Stops at the first failing sample, or once the hold window or the
+        overall deadline is reached. Uses ``time.monotonic`` only, so the
+        runner and its leaves share a single clock.
+
+        Args:
+            node: Leaf verifier to sample.
+            deadline: Absolute monotonic deadline; sampling stops at the
+                earlier of the hold window or this deadline.
+            window_sec: Seconds to keep sampling.
+            interval_sec: Seconds to sleep between samples.
+
+        Returns:
+            A failed result on the first failing sample; a successful result
+            if every sample up to the window/deadline passes.
+        """
+        start = time.monotonic()
+        window_end = start + window_sec
+        samples = 0
+        while True:
+            result = node.verify(0.0)
+            samples += 1
+            if not result.success:
+                return VerificationResult(
+                    success=False,
+                    elapsed_time=time.monotonic() - start,
+                    reason=f"hold failed at sample {samples}: {result.reason}",
+                    name=_node_name(node),
+                    raw=result.raw,
+                )
+            now = time.monotonic()
+            if now >= window_end or now >= deadline:
+                break
+            sleep_time = min(interval_sec, window_end - now, deadline - now)
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+        elapsed = time.monotonic() - start
+        return VerificationResult(
+            success=True,
+            elapsed_time=elapsed,
+            reason=f"hold passed: {samples} sample(s) over {elapsed:.1f}s",
+            name=_node_name(node),
+        )
+
+    def _run_sequence(
+        self, node: SequenceSpec, deadline: float, *, ctx: _ModeCtx
+    ) -> VerificationResult:
         """Run children in order; stop and skip the rest on the first failure."""
         start = time.monotonic()
         children: list[VerificationResult] = []
@@ -144,7 +277,7 @@ class VerifierAgent:
                 reasons.append(f"[{i}] skipped")
                 ok = False
                 continue
-            res = self._run(child, deadline)
+            res = self._run(child, deadline, ctx=ctx)
             children.append(res)
             if not res.success:
                 ok = False
@@ -167,6 +300,8 @@ class VerifierAgent:
         node: Any,
         deadline: float,
         quantifier: Literal["all", "any", "none"],
+        *,
+        ctx: _ModeCtx,
     ) -> VerificationResult:
         """Run children concurrently and combine by ``quantifier``.
 
@@ -199,7 +334,10 @@ class VerifierAgent:
         # ``verify(remaining)`` call, so they cannot linger long.
         ex = ThreadPoolExecutor(max_workers=workers)
         try:
-            futs = {ex.submit(self._run, child, deadline): i for i, child in enumerate(node.checks)}
+            futs = {
+                ex.submit(self._run, child, deadline, ctx=ctx): i
+                for i, child in enumerate(node.checks)
+            }
             done, _ = futures_wait(futs, timeout=max(0.0, deadline - time.monotonic()))
             for f, i in futs.items():
                 if f not in done:
