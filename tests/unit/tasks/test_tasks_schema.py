@@ -192,6 +192,104 @@ def test_chaos_and_verification_specs_are_opaque():
     assert task.verification_spec == [{"name": "v"}]
 
 
+def test_verification_entry_objective_minimal():
+    from devops_bench.tasks.schema import VerificationEntry
+
+    entry = VerificationEntry.model_validate(
+        {
+            "name": "workload-running",
+            "role": "objective",
+            "check": {"type": "resource_property", "kind": "deployment", "op": "exists"},
+        }
+    )
+    assert entry.role == "objective"
+    assert entry.severity is None
+    assert entry.mode is None
+    assert entry.weight == 1.0
+    assert entry.check["kind"] == "deployment"
+
+
+def test_verification_entry_int_weight_coerced_to_float():
+    from devops_bench.tasks.schema import VerificationEntry
+
+    entry = VerificationEntry.model_validate(
+        {"name": "h", "role": "objective", "weight": 3, "check": {"type": "all", "checks": []}}
+    )
+    assert entry.weight == 3.0
+    assert isinstance(entry.weight, float)
+
+
+def test_verification_entry_safeguard_requires_severity():
+    from devops_bench.tasks.schema import VerificationEntry
+
+    with pytest.raises(ValidationError):
+        VerificationEntry.model_validate({"name": "s", "role": "safeguard", "check": {"type": "x"}})
+
+
+def test_verification_entry_objective_forbids_severity():
+    from devops_bench.tasks.schema import VerificationEntry
+
+    with pytest.raises(ValidationError):
+        VerificationEntry.model_validate(
+            {"name": "o", "role": "objective", "severity": "recoverable", "check": {"type": "x"}}
+        )
+
+
+def test_verification_entry_safeguard_with_severity_ok():
+    from devops_bench.tasks.schema import VerificationEntry
+
+    entry = VerificationEntry.model_validate(
+        {"name": "s", "role": "safeguard", "severity": "catastrophic", "check": {"type": "x"}}
+    )
+    assert entry.severity == "catastrophic"
+
+
+def test_verification_entry_weight_must_be_positive():
+    from devops_bench.tasks.schema import VerificationEntry
+
+    with pytest.raises(ValidationError):
+        VerificationEntry.model_validate(
+            {"name": "o", "role": "objective", "weight": 0, "check": {"type": "x"}}
+        )
+
+
+def test_task_parses_verification_entries():
+    raw = {
+        "task_id": 6,
+        "name": "demo",
+        "prompt": "p",
+        "verification_entries": [
+            {
+                "name": "obj",
+                "role": "objective",
+                "check": {"type": "resource_property", "kind": "deployment", "op": "exists"},
+            },
+            {
+                "name": "guard",
+                "role": "safeguard",
+                "severity": "recoverable",
+                "check": {"type": "resource_property", "kind": "deployment", "op": "absent"},
+            },
+        ],
+    }
+    task = Task.from_dict(raw, name_default="d")
+    assert task.verification_entries is not None
+    assert len(task.verification_entries) == 2
+    assert task.verification_entries[0].role == "objective"
+    assert task.verification_entries[1].severity == "recoverable"
+
+
+def test_task_verification_entries_defaults_none():
+    task = Task.from_dict({"name": "n"}, name_default="d")
+    assert task.verification_entries is None
+
+
+def test_task_empty_verification_entries_block_coalesces_none():
+    # An empty YAML block (`verification_entries:` with no value) parses to None.
+    task = Task.from_dict({"name": "n", "verification_entries": None}, name_default="d")
+    assert task.verification_entries is None
+
+
 def test_to_dict_roundtrip_fields():
     task = Task.from_dict(
         {"task_id": 3, "name": "n", "prompt": "p", "expected_output": "e"},
@@ -211,6 +309,7 @@ def test_to_dict_roundtrip_fields():
         "retrieval_context",
         "chaos_spec",
         "verification_spec",
+        "verification_entries",
         "infrastructure",
         "documentation",
         "validated",
