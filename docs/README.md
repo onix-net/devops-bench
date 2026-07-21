@@ -33,6 +33,7 @@ and [glossary](./components/glossary.md).
 ## Reference
 
 - [Known issues](./appendix/known_issues.md) — a recovery router for eval failures, plus the current known hacks.
+- [Deploy hello-app oracle validation](./appendix/deploy-hello-app-oracle-validation.md) - Manual oracle-manifest validation runbook for the deploy-hello-app verification task.
 
 ## Migration
 
