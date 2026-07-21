@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import re
-import time
 import uuid
 from typing import Any, Literal
 
@@ -32,12 +31,14 @@ _log = get_logger("verification.http_probe")
 
 @VERIFIERS.register("http_probe")
 class HttpProbeVerifier(BaseVerifier):
-    """Verify HTTP reachability by running a one-shot curl inside the cluster.
+    """Verify HTTP reachability by curling the URL from inside the cluster.
 
-    Launches an ephemeral ``curlimages/curl`` pod via ``kubectl run --rm`` and
-    asserts on status code and, optionally, body content. Reach for it when the
-    service is not externally accessible; every use documents that the service
-    can only be probed from inside the cluster.
+    Launches an ephemeral ``curlimages/curl`` pod per attempt via
+    ``kubectl run --rm`` and checks status code and, optionally, body content.
+    In converge mode it retries a fresh pod until the expected response appears
+    or the deadline passes; in assert and hold mode it fires exactly once. Reach
+    for it when the service is not externally accessible; every use documents
+    that the service can only be probed from inside the cluster.
 
     Attributes:
         type: Discriminator literal, always ``"http_probe"``.
@@ -57,42 +58,32 @@ class HttpProbeVerifier(BaseVerifier):
     probe_timeout: int = 10
 
     def verify(self, timeout_sec: float) -> VerificationResult:
-        """Run the curl probe and return the result.
+        """Probe the URL, retrying until it responds as expected or time runs out.
+
+        In converge mode ``timeout_sec`` is the remaining budget, so a fresh
+        curl pod is launched per attempt until the expected status (and body)
+        is seen or the deadline passes. In assert and hold mode ``timeout_sec``
+        is ``0``, so the probe fires exactly once.
 
         Args:
-            timeout_sec: Accepted to satisfy the :class:`BaseVerifier` contract;
-                the probe is always one-shot and bounded by ``probe_timeout``.
+            timeout_sec: Maximum seconds to keep retrying the probe.
 
         Returns:
-            The verification result.
+            The verification result carrying the last observed outcome.
         """
-        start = time.monotonic()
+        return self._poll_to_result(self._probe_check, timeout_sec)
+
+    def _probe_check(self) -> tuple[bool, str, dict[str, Any] | None]:
+        """Run one probe attempt, folding kubectl/unexpected errors into a retryable failure."""
         try:
-            ok, reason, raw = self._run_probe()
+            return self._run_probe()
         except SubprocessError as exc:
             stderr = (exc.stderr or "").strip()
             _log.warning("http_probe kubectl run failed for %s: %s", self.url, stderr)
-            return VerificationResult(
-                success=False,
-                elapsed_time=time.monotonic() - start,
-                reason=f"kubectl run failed: {stderr}",
-                name=self.name,
-            )
-        except Exception as exc:  # noqa: BLE001 - surface unexpected errors as failures
+            return False, f"kubectl run failed: {stderr}", None
+        except Exception as exc:  # noqa: BLE001 - surface unexpected errors as retryable failures
             _log.warning("http_probe unexpected error for %s: %s", self.url, exc)
-            return VerificationResult(
-                success=False,
-                elapsed_time=time.monotonic() - start,
-                reason=f"unexpected error: {exc}",
-                name=self.name,
-            )
-        return VerificationResult(
-            success=ok,
-            elapsed_time=time.monotonic() - start,
-            reason=reason,
-            name=self.name,
-            raw=raw,
-        )
+            return False, f"unexpected error: {exc}", None
 
     def _run_probe(self) -> tuple[bool, str, dict[str, Any] | None]:
         """Launch an ephemeral curl pod and evaluate its output."""

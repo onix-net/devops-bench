@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from devops_bench.core import SubprocessError
+from devops_bench.k8s.conditions import poll_until as _real_poll_until
 from devops_bench.verification import VerificationSpec
 from devops_bench.verification.verifiers.http_probe import HttpProbeVerifier
 
@@ -42,7 +43,7 @@ def test_probe_passes_on_expected_status(mocker):
 def test_probe_fails_on_wrong_status(mocker):
     _patch_run_pod(mocker, "not found\n404")
     v = HttpProbeVerifier.model_validate({"type": "http_probe", "url": "http://svc"})
-    result = v.verify(30)
+    result = v.verify(0)
     assert result.success is False
     assert "404" in result.reason
 
@@ -52,7 +53,7 @@ def test_probe_body_match_required(mocker):
     v = HttpProbeVerifier.model_validate(
         {"type": "http_probe", "url": "http://svc", "expect_body_matches": "hello"}
     )
-    assert v.verify(30).success is False
+    assert v.verify(0).success is False
 
 
 def test_probe_body_match_passes(mocker):
@@ -69,7 +70,7 @@ def test_probe_subprocess_error_is_failure(mocker):
         side_effect=SubprocessError(["kubectl", "run"], returncode=1, stderr="boom"),
     )
     v = HttpProbeVerifier.model_validate({"type": "http_probe", "url": "http://svc"})
-    result = v.verify(30)
+    result = v.verify(0)
     assert result.success is False
     assert "kubectl run failed" in result.reason
 
@@ -77,4 +78,40 @@ def test_probe_subprocess_error_is_failure(mocker):
 def test_probe_unparseable_output(mocker):
     _patch_run_pod(mocker, "no-status-line")
     v = HttpProbeVerifier.model_validate({"type": "http_probe", "url": "http://svc"})
-    assert v.verify(30).success is False
+    assert v.verify(0).success is False
+
+
+def test_probe_polls_until_success(mocker):
+    """Converge mode retries a fresh probe until the expected status appears."""
+    run_pod = mocker.patch(
+        "devops_bench.verification.verifiers.http_probe.run_pod",
+        side_effect=["down\n503", "down\n503", "hello world\n200"],
+    )
+
+    # Exercise the real poll loop but without real sleeping between attempts.
+    def _fast_poll(predicate, *, timeout_sec, **_):
+        return _real_poll_until(
+            predicate,
+            timeout_sec=timeout_sec,
+            initial_delay=0.0,
+            max_delay=0.0,
+            sleep=lambda _s: None,
+        )
+
+    mocker.patch("devops_bench.verification.base.poll_until", side_effect=_fast_poll)
+    v = HttpProbeVerifier.model_validate({"type": "http_probe", "url": "http://svc"})
+    result = v.verify(30)
+    assert result.success is True
+    assert run_pod.call_count == 3
+
+
+def test_probe_assert_mode_is_single_shot(mocker):
+    """With no budget (assert/hold), the probe fires exactly once and does not retry."""
+    run_pod = mocker.patch(
+        "devops_bench.verification.verifiers.http_probe.run_pod",
+        return_value="down\n503",
+    )
+    v = HttpProbeVerifier.model_validate({"type": "http_probe", "url": "http://svc"})
+    result = v.verify(0.0)
+    assert result.success is False
+    assert run_pod.call_count == 1
