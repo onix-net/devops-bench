@@ -27,7 +27,11 @@ from pydantic import ValidationError
 
 from devops_bench.core import SubprocessError
 from devops_bench.verification import VerificationSpec
-from devops_bench.verification.verifiers.resource_property import ResourcePropertyVerifier
+from devops_bench.verification.verifiers.resource_property import (
+    ResourcePropertyVerifier,
+    _eval_op,
+    _to_number,
+)
 
 _DEPLOY = {
     "metadata": {"labels": {"pod-security.kubernetes.io/enforce": "restricted"}},
@@ -271,3 +275,38 @@ def test_named_absent_on_404(mocker):
         }
     )
     assert v.verify(1).success is True
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (2, 2.0),
+        ("2", 2.0),
+        ("150m", 0.15),
+        ("192Mi", 201326592.0),
+        ("1Gi", 1073741824.0),
+        ("1.5", 1.5),
+        ("abc", None),
+        (True, None),
+        (None, None),
+    ],
+)
+def test_to_number(value, expected):
+    assert _to_number(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "op", "expected", "result"),
+    [
+        ("150m", "gt", "100m", True),
+        ("100m", "gt", "150m", False),
+        ("192Mi", "lt", "256Mi", True),
+        ("1Gi", "gt", "500Mi", True),
+        (2, "gt", 1, True),
+        ("250m", "gte", "250m", True),
+        (0.5, "gt", "300m", True),
+        ("abc", "gt", "1", False),
+    ],
+)
+def test_eval_op_quantity_aware(value, op, expected, result):
+    assert _eval_op(value, op, expected) is result

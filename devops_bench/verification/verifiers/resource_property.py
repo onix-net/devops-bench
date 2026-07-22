@@ -40,6 +40,39 @@ _SCALAR_OPS: frozenset[str] = frozenset(
 )
 
 
+# Kubernetes quantity suffix multipliers (decimal SI, binary IEC, and sub-unit).
+_QUANTITY_SUFFIXES: dict[str, float] = {
+    "n": 1e-9, "u": 1e-6, "m": 1e-3, "": 1.0,
+    "k": 1e3, "M": 1e6, "G": 1e9, "T": 1e12, "P": 1e15, "E": 1e18,
+    "Ki": 2**10, "Mi": 2**20, "Gi": 2**30, "Ti": 2**40, "Pi": 2**50, "Ei": 2**60,
+}
+
+_QUANTITY_RE = re.compile(r"^\s*([+-]?\d+(?:\.\d+)?)\s*([a-zA-Z]*)\s*$")
+
+
+def _to_number(value: Any) -> float | None:
+    """Parse a plain number or a Kubernetes quantity string to a float.
+
+    Handles bare ints/floats and Kubernetes resource quantities such as
+    ``"150m"``, ``"192Mi"``, ``"1Gi"``. Returns None when the value cannot be
+    interpreted numerically.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    if not isinstance(value, str):
+        return None
+    match = _QUANTITY_RE.match(value)
+    if match is None:
+        return None
+    number, suffix = match.group(1), match.group(2)
+    multiplier = _QUANTITY_SUFFIXES.get(suffix)
+    if multiplier is None:
+        return None
+    return float(number) * multiplier
+
+
 def _eval_op(value: Any, op: str, expected: Any) -> bool:
     """Evaluate a scalar comparison between a resolved value and the expected value."""
     if op == "eq":
@@ -47,9 +80,8 @@ def _eval_op(value: Any, op: str, expected: Any) -> bool:
     if op == "ne":
         return value != expected
     if op in ("gt", "gte", "lt", "lte"):
-        try:
-            fv, fe = float(value), float(expected)
-        except (TypeError, ValueError):
+        fv, fe = _to_number(value), _to_number(expected)
+        if fv is None or fe is None:
             return False
         if op == "gt":
             return fv > fe
