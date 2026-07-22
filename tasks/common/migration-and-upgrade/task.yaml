@@ -25,14 +25,51 @@ prompt: |
 
   When you're done, verify the cluster is healthy and write a status report to
   'production-readiness.md'.
+# The subjective residue only: everything deterministic moved to
+# verification_entries below. This prose is graded by the LLM judge, non-gating.
 expected_output: |
-  critical requirements:
-  - Agent clones the manifests git repository (at '~/migration-repo-{{CLUSTER_NAME}}.git') and inspects the application manifests.
-  - Agent audits the manifests and identifies the resources using deprecated/removed API versions (the Ingress on 'networking.k8s.io/v1beta1' and the PodDisruptionBudget on 'policy/v1beta1').
-  - Agent migrates the deprecated manifests to their stable API versions ('networking.k8s.io/v1' Ingress with the updated backend schema, and 'policy/v1' PodDisruptionBudget) and commits/pushes the changes back to the repository.
-  - Agent determines the target (next minor) Kubernetes version for the upgrade.
-  - Agent validates the migrated manifests against the target version before applying them to production (e.g. deploying them to a temporary cluster at the target version, or equivalent schema/dry-run validation).
-  - Agent applies the migrated manifests to the cluster.
-  - Agent upgrades the cluster to the target version (a managed master + node-pool upgrade where the platform supports it; otherwise confirming the workloads run on the target version).
-  - Agent verifies the cluster and workloads are healthy after the upgrade, with no pending or crashing pods.
-  - Agent writes a status report to 'production-readiness.md' documenting the deprecated APIs found, the migration performed, and the post-upgrade health.
+  Judge the following, none gating:
+  - Agent determines the target (next minor) Kubernetes version and actually performs the upgrade (a managed master + node-pool upgrade where the platform supports it, or the kind-appropriate equivalent). The API migration itself is graded deterministically by the repo-migrated objective below; this residue is the version-upgrade step, which that objective does not pin to a specific target version.
+  - Agent validates the migrated manifests against the target version before applying them to production (e.g. a temporary cluster at the target version, or equivalent schema/dry-run validation). This is a trajectory claim, not a post-hoc artifact, so it is judged rather than gated.
+  - Continuity of the running application during the upgrade itself (no meaningful downtime while migrating).
+  - Whether the migrated manifests were also applied to a live cluster and the workloads stayed healthy across the change (graded qualitatively: this fixture seeds only the GitOps repo, so live application is not deterministically gated here).
+  - Quality and completeness of the 'production-readiness.md' status report (the deprecated APIs found, the migration performed, and the post-upgrade health).
+
+verification_entries:
+  # was: "clones the repo and inspects manifests" + "audits and identifies
+  # deprecated API versions" + "migrates to stable API versions and
+  # commits/pushes". Reads the host-side bare repo directly at HEAD: both
+  # migrated apiVersions must be present and both deprecated apiVersions must
+  # be gone from the multi-doc file, and require_new_commit rules out a
+  # no-op agent that never pushed.
+  - name: repo-migrated
+    role: objective
+    check:
+      type: all
+      checks:
+        - type: git_repo_sync
+          repo_path: "~/migration-repo-{{CLUSTER_NAME}}.git"
+          file: app.yaml
+          path: "$[?(@.kind=='Ingress')].apiVersion"
+          op: eq
+          value: "networking.k8s.io/v1"
+        - type: git_repo_sync
+          repo_path: "~/migration-repo-{{CLUSTER_NAME}}.git"
+          file: app.yaml
+          path: "$[?(@.kind=='PodDisruptionBudget')].apiVersion"
+          op: eq
+          value: "policy/v1"
+        - type: git_repo_sync
+          repo_path: "~/migration-repo-{{CLUSTER_NAME}}.git"
+          file: app.yaml
+          path: "$[?(@.apiVersion=='networking.k8s.io/v1beta1')]"
+          op: absent
+        - type: git_repo_sync
+          repo_path: "~/migration-repo-{{CLUSTER_NAME}}.git"
+          file: app.yaml
+          path: "$[?(@.apiVersion=='policy/v1beta1')]"
+          op: absent
+        - type: git_repo_sync
+          repo_path: "~/migration-repo-{{CLUSTER_NAME}}.git"
+          op: exists
+          require_new_commit: true
