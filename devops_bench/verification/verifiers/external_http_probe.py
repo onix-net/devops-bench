@@ -99,16 +99,23 @@ class ExternalHttpProbeVerifier(BaseVerifier):
 
     Limitations: it grades that *the discovered external address* answered with the
     expected status, not the identity of the backend. If a caller needs to tie the
-    response to a specific app, set ``expect_body_matches`` to a response marker. A
-    ``selector`` that matches several Services probes the first one carrying an
-    address. TLS identity is not verified (this is a reachability probe against a
-    raw IP). Gateway API discovery (``status.addresses``) is not yet supported.
+    response to a specific app, set ``expect_body_matches`` to a response marker.
+    With neither ``name`` nor ``selector``, discovery scans the whole ``namespace``
+    and probes the first Service carrying an external address (intended for a
+    dedicated single-app namespace); a ``selector`` matching several Services
+    behaves the same way. TLS identity is not verified (this is a reachability
+    probe against a raw IP). Gateway API discovery (``status.addresses``) is not
+    yet supported.
 
     Attributes:
         kind: Resource kind carrying the external address; ``"service"`` (default)
             or ``"ingress"`` (both expose ``status.loadBalancer.ingress``).
-        name: Specific resource name. Exactly one of ``name`` / ``selector``.
-        selector: Label selector (``-l``). Exactly one of ``name`` / ``selector``.
+        name: Specific resource name. At most one of ``name`` / ``selector``;
+            with neither set, every Service in ``namespace`` is scanned and the
+            first carrying an external address is probed.
+        selector: Label selector (``-l``). At most one of ``name`` / ``selector``;
+            with neither set, every Service in ``namespace`` is scanned and the
+            first carrying an external address is probed.
         namespace: Namespace of the resource; active context when None.
         scheme: ``"http"`` (default) or ``"https"``.
         port: External port. When None, use the scheme's conventional port
@@ -134,8 +141,10 @@ class ExternalHttpProbeVerifier(BaseVerifier):
 
     @model_validator(mode="after")
     def _validate(self) -> ExternalHttpProbeVerifier:
-        if (self.name is None) == (self.selector is None):
-            raise ValueError("provide exactly one of 'name' or 'selector'")
+        if self.name is not None and self.selector is not None:
+            raise ValueError("provide at most one of 'name' or 'selector'")
+        if self.name is None and self.selector is None and not self.namespace:
+            raise ValueError("provide a 'name', a 'selector', or a 'namespace' to scope discovery")
         return self
 
     def verify(self, timeout_sec: float) -> VerificationResult:

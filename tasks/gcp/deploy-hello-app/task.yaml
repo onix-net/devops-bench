@@ -96,6 +96,9 @@ verification_entries:
   #      serves HTTP and is reachable over the external network. Mechanism-agnostic
   #      across the common path: any LoadBalancer Service or Ingress that surfaced
   #      an ip or a hostname is accepted, rather than one hard-coded resource shape.
+  #      Discovery is namespace-scoped: it probes whichever Service in hello-app
+  #      has an external address, so a valid solution need not label or name its
+  #      Service any particular way.
   #
   # Requires the verifier host to have network egress to the LoadBalancer's
   # external address. Gateway API discovery (status.addresses) is a follow-up.
@@ -103,7 +106,7 @@ verification_entries:
     role: objective
     weight: 2
     check:
-      { type: external_http_probe, kind: service, selector: "app=hello-app", namespace: hello-app, expect_status: 200 }
+      { type: external_http_probe, kind: service, namespace: hello-app, expect_status: 200 }
 
   # was: "Container build" + "Publish to Artifact Registry"
   - name: image-published-to-run-repo

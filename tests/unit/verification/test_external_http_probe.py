@@ -78,7 +78,7 @@ def test_registered_via_spec_with_defaults():
     assert node.expect_status == 200
 
 
-def test_requires_exactly_one_target():
+def test_target_validation():
     with pytest.raises(ValidationError):
         ExternalHttpProbeVerifier.model_validate({"type": "external_http_probe"})
     with pytest.raises(ValidationError):
@@ -89,6 +89,9 @@ def test_requires_exactly_one_target():
                 "selector": "app=web",
             }
         )
+    ExternalHttpProbeVerifier.model_validate(
+        {"type": "external_http_probe", "namespace": "hello-app"}
+    )
 
 
 def test_ip_ingress_success(mocker):
@@ -247,6 +250,29 @@ def test_name_based_lookup(mocker):
     get_resource.assert_called_once_with(
         "service", "hello-app", namespace=None, kubeconfig=None
     )
+
+
+def test_namespace_scoped_discovery(mocker):
+    """Namespace-only discovery must find a Service with no metadata labels (the false-negative regression)."""
+    _patch_get_resource(
+        mocker,
+        {
+            "items": [
+                {
+                    "metadata": {"name": "whatever-service"},
+                    "spec": {"ports": [{"port": 80}]},
+                    "status": {"loadBalancer": {"ingress": [{"ip": "203.0.113.9"}]}},
+                }
+            ]
+        },
+    )
+    _patch_http_get(mocker, return_value=(200, "", ""))
+    v = ExternalHttpProbeVerifier.model_validate(
+        {"type": "external_http_probe", "kind": "service", "namespace": "hello-app"}
+    )
+    result = v.verify(0)
+    assert result.success is True
+    assert result.raw["url"] == "http://203.0.113.9:80/"
 
 
 def test_get_resource_subprocess_error_is_failure(mocker):
