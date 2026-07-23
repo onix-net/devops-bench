@@ -22,12 +22,15 @@ surface (:data:`VERIFIERS`, :func:`parse_node`), and the deadline-based
 heavy SDKs -- concrete leaf verifiers register via this package's submodules
 only.
 
-The entry-level schema (:class:`VerificationEntry`, :data:`Role`) is available
-via direct submodule imports or from this package.
+The entry-level schema (:class:`VerificationEntry`, :data:`Role`,
+:data:`Severity`) and the scoring rollup (:func:`rollup`,
+:class:`EvaluatedEntry`, :class:`RollupScores`) are available via direct
+submodule imports or from this package.
 """
 
 from devops_bench.verification.base import VERIFIERS, BaseVerifier, Mode, VerificationResult
-from devops_bench.verification.entry import Role, VerificationEntry
+from devops_bench.verification.entry import Role, Severity, VerificationEntry
+from devops_bench.verification.rollup import EvaluatedEntry, RollupScores, rollup
 from devops_bench.verification.runner import VerifierAgent
 from devops_bench.verification.spec import (
     ParallelSpec,
@@ -40,10 +43,13 @@ from devops_bench.verification.spec import (
 
 __all__ = [
     "BaseVerifier",
+    "EvaluatedEntry",
     "Mode",
     "ParallelSpec",
     "Role",
+    "RollupScores",
     "SequenceSpec",
+    "Severity",
     "VERIFIERS",
     "VerificationEntry",
     "VerificationNode",
@@ -52,4 +58,5 @@ __all__ = [
     "VerifierAgent",
     "json_schema",
     "parse_node",
+    "rollup",
 ]
