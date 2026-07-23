@@ -19,7 +19,7 @@ iso_auth_gemini() {
   _iso_unset_keys
 
   export JUDGE_PROVIDER="google-vertex"
-  export JUDGE_MODEL="gemini-3.1-pro-preview"
+  export JUDGE_MODEL="${JUDGE_MODEL:-gemini-3.1-pro-preview}"
   export GCP_PROJECT_ID="$PROJECT"
   export GCP_VERTEX_LOCATION="global"
 
@@ -30,7 +30,7 @@ iso_auth_gemini() {
   export BENCH_AGENT_TYPE="gemini"
   export AGENT_TARGET="gemini"
   export AGENT_PROVIDER="google-vertex"
-  export AGENT_MODEL="gemini-3.5-flash"
+  export AGENT_MODEL="${AGENT_MODEL:-gemini-3.5-flash}"
   export BENCH_USE_MCP="false"
 }
 
@@ -39,7 +39,7 @@ iso_auth_oc() {
   _iso_unset_keys
 
   export JUDGE_PROVIDER="google-vertex"
-  export JUDGE_MODEL="gemini-3.1-pro-preview"
+  export JUDGE_MODEL="${JUDGE_MODEL:-gemini-3.1-pro-preview}"
   export GCP_PROJECT_ID="$PROJECT"
   export GCP_VERTEX_LOCATION="global"
 
@@ -50,7 +50,7 @@ iso_auth_oc() {
   export BENCH_AGENT_TYPE="openclaw"
   export AGENT_TARGET="$HOME/bin/oc"
   export AGENT_PROVIDER="google-vertex"
-  export AGENT_MODEL="gemini-3.5-flash"
+  export AGENT_MODEL="${AGENT_MODEL:-gemini-3.5-flash}"
   # oc's Vertex-ADC marker; bare `oc` reads this instead of a real API key.
   export GOOGLE_CLOUD_API_KEY="gcp-vertex-credentials"
   export BENCH_USE_MCP="false"

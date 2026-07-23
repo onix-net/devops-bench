@@ -24,14 +24,16 @@ scripts/isorun/run.sh tasks/common/optimize-scale/task.yaml gemini --keep
 ```
 
 `gemini` is the default agent if omitted, and `--no-infra` is the default
-mode. The primary agent model is `gemini-3.5-flash`; the judge is held at
-`gemini-3.1-pro-preview` regardless of which agent is under test.
+mode. The primary agent model defaults to `gemini-3.5-flash` (override with
+`AGENT_MODEL`); the judge defaults to `gemini-3.1-pro-preview` (override with
+`JUDGE_MODEL`), regardless of which agent is under test. The per-task agent
+timeout defaults to 1800 seconds (override with `AGENT_TIMEOUT_SEC`).
 
 ## `--no-infra` vs `--infra`
 
 Most of these tasks (`deployer: "tofu"`) depend on tofu-**seeded** cluster
 state: broken configs, Kyverno policies, bare GitOps repos, etc. `--no-infra`
-skips provisioning and reuses whatever cluster is already configured — it
+skips provisioning and reuses whatever cluster is already configured; it
 does **not** seed that state. If the seed isn't already present (e.g. a fresh
 cluster, or one that was already cleaned up), you need `--infra` to actually
 provision and seed the stack, or you must seed it manually first.
@@ -45,13 +47,13 @@ trusting the result.
 Before launching, `run.sh` looks for `scripts/isorun/cleanup/<task-name>.sh`
 (keyed off the task's directory name, e.g. `cve-remediation` for
 `tasks/common/cve-remediation/task.yaml`) and runs it as a pre-run reset. Each
-hook is idempotent — safe to run when nothing exists yet — and only deletes
+hook is idempotent (safe to run when nothing exists yet) and only deletes
 what that task creates; it leaves tofu-owned/tofu-destroyed resources (the
 cluster, Secret Manager secrets, the Lustre instance, etc.) alone.
 
 ## Auth
 
-Both agents authenticate via Vertex ADC — no API keys. `iso_auth_gemini` and
+Both agents authenticate via Vertex ADC: no API keys. `iso_auth_gemini` and
 `iso_auth_oc` in `_common.sh` unset every `*_API_KEY` env var and export the
 `GOOGLE_GENAI_USE_VERTEXAI` / `GCP_PROJECT_ID` / `GCP_VERTEX_LOCATION=global`
 triad the agent and judge each read. `oc` additionally needs the

@@ -104,7 +104,7 @@ case "$AGENT" in
 esac
 
 export GKE_CLUSTER_NAME="$CLUSTER"
-export AGENT_TIMEOUT_SEC=1800
+export AGENT_TIMEOUT_SEC="${AGENT_TIMEOUT_SEC:-1800}"
 
 RESULTS_ROOT="$REPO/results/iso-$TASKNAME"
 CMD=(uv run --project "$REPO" python -m devops_bench "$MODE" --project "$PROJECT" --cluster "$CLUSTER" --results-root "$RESULTS_ROOT" "$TASK_PATH")
