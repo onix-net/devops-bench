@@ -87,9 +87,7 @@ def load_from_tasks_dir(dir_path: str) -> list:
                             {
                                 "task_id": task_id if task_id is not None else 999,
                                 "name": name,
-                                "input": prompt.strip()
-                                if isinstance(prompt, str)
-                                else str(prompt),
+                                "input": prompt.strip() if isinstance(prompt, str) else str(prompt),
                                 "expected_output": expected.strip()
                                 if isinstance(expected, str)
                                 else str(expected),
@@ -107,4 +105,3 @@ def load_from_tasks_dir(dir_path: str) -> list:
 
     eval_data.sort(key=lambda k: k["task_id"])
     return eval_data
-

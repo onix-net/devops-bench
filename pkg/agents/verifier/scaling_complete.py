@@ -4,6 +4,7 @@ import json
 from typing import Literal, Optional
 from pkg.agents.verifier.base import BaseVerifier, VerificationResult
 
+
 class ScalingCompleteVerifier(BaseVerifier):
     type: Literal["scaling_complete"] = "scaling_complete"
     deployment: str
@@ -49,9 +50,7 @@ class ScalingCompleteVerifier(BaseVerifier):
             if self.namespace:
                 cmd.extend(["-n", self.namespace])
 
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, check=True
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             dep_data = json.loads(result.stdout)
             ready_replicas = dep_data.get("status", {}).get("readyReplicas", 0)
             success = ready_replicas >= self.min_replicas
@@ -62,8 +61,6 @@ class ScalingCompleteVerifier(BaseVerifier):
             )
             return success, {"reason": reason, "deployment": dep_data}
         except subprocess.CalledProcessError as e:
-            return False, {
-                "reason": f"Failed to get deployment: {e.stderr.strip()}"
-            }
+            return False, {"reason": f"Failed to get deployment: {e.stderr.strip()}"}
         except json.JSONDecodeError:
             return False, {"reason": "Failed to parse deployment JSON"}

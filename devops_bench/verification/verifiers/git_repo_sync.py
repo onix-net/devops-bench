@@ -120,7 +120,11 @@ class GitRepoSyncVerifier(BaseVerifier):
 
         if self.file is None:
             if self.op == "absent":
-                return False, f"repo ref present at {self.ref} (absent not satisfied)", {"sha": head}
+                return (
+                    False,
+                    f"repo ref present at {self.ref} (absent not satisfied)",
+                    {"sha": head},
+                )
             return True, f"repo at {self.ref} ({head[:8]})", {"sha": head}
 
         try:

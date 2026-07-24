@@ -42,9 +42,22 @@ _SCALAR_OPS: frozenset[str] = frozenset(
 
 # Kubernetes quantity suffix multipliers (decimal SI, binary IEC, and sub-unit).
 _QUANTITY_SUFFIXES: dict[str, float] = {
-    "n": 1e-9, "u": 1e-6, "m": 1e-3, "": 1.0,
-    "k": 1e3, "M": 1e6, "G": 1e9, "T": 1e12, "P": 1e15, "E": 1e18,
-    "Ki": 2**10, "Mi": 2**20, "Gi": 2**30, "Ti": 2**40, "Pi": 2**50, "Ei": 2**60,
+    "n": 1e-9,
+    "u": 1e-6,
+    "m": 1e-3,
+    "": 1.0,
+    "k": 1e3,
+    "M": 1e6,
+    "G": 1e9,
+    "T": 1e12,
+    "P": 1e15,
+    "E": 1e18,
+    "Ki": 2**10,
+    "Mi": 2**20,
+    "Gi": 2**30,
+    "Ti": 2**40,
+    "Pi": 2**50,
+    "Ei": 2**60,
 }
 
 _QUANTITY_RE = re.compile(r"^\s*([+-]?\d+(?:\.\d+)?)\s*([a-zA-Z]*)\s*$")

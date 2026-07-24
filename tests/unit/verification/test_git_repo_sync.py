@@ -30,11 +30,16 @@ from devops_bench.verification import VerificationSpec
 from devops_bench.verification.verifiers.git_repo_sync import GitRepoSyncVerifier
 
 _GIT_CFG = [
-    "-c", "commit.gpgsign=false",
-    "-c", "init.defaultBranch=main",
-    "-c", "safe.bareRepository=all",
-    "-c", "user.email=devops-bench-test@example.com",
-    "-c", "user.name=devops-bench-test",
+    "-c",
+    "commit.gpgsign=false",
+    "-c",
+    "init.defaultBranch=main",
+    "-c",
+    "safe.bareRepository=all",
+    "-c",
+    "user.email=devops-bench-test@example.com",
+    "-c",
+    "user.name=devops-bench-test",
 ]
 
 _WEB_SEED = """\
@@ -99,9 +104,7 @@ spec:
 
 
 def _run(cwd: Path, *args: str) -> str:
-    result = subprocess.run(
-        ["git", *_GIT_CFG, *args], cwd=cwd, capture_output=True, text=True
-    )
+    result = subprocess.run(["git", *_GIT_CFG, *args], cwd=cwd, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)} failed: {result.stderr}")
     return result.stdout

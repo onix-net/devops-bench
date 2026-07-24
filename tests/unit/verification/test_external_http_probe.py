@@ -247,9 +247,7 @@ def test_name_based_lookup(mocker):
     )
     result = v.verify(0)
     assert result.success is True
-    get_resource.assert_called_once_with(
-        "service", "hello-app", namespace=None, kubeconfig=None
-    )
+    get_resource.assert_called_once_with("service", "hello-app", namespace=None, kubeconfig=None)
 
 
 def test_namespace_scoped_discovery(mocker):

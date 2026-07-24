@@ -2,12 +2,13 @@ import os
 import pathlib
 from typing import Any, Dict
 
+
 def resolve_variables(
     stack: str,
     custom_variables: Dict[str, Any],
     global_project_id: str,
     global_cluster_name: str,
-    global_location: str
+    global_location: str,
 ) -> Dict[str, Any]:
     """Resolves default variables for local KinD-based stacks."""
     variables = custom_variables.copy()
