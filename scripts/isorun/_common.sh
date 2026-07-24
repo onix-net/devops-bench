@@ -2,7 +2,7 @@
 # Shared library for scripts/isorun/*.sh. Source this, don't execute it.
 # shellcheck disable=SC2034  # REPO/PROJECT/CLUSTER/REGION are consumed by the scripts that source this file
 
-REPO="/Users/eric.hole/dev/gke-labs/devops-bench/.claude/worktrees/agent-stumping-thesis-ba2147"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 PROJECT="${GCP_PROJECT_ID:-$(gcloud config get-value project 2>/dev/null || true)}"
 CLUSTER="${GKE_CLUSTER_NAME:-autopilot-cluster-1}"
