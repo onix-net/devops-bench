@@ -2,10 +2,8 @@ task_id: 24
 name: "checkout-multi-service-outage"
 infrastructure:
   deployer: "tofu"
-  stack: "prebuilt/kind"
+  stack: "prebuilt/checkout-multi-service-outage-kind"
   teardown: true
-  variables:
-    install_ingress_nginx: true
 prompt: |
   Namespace 'checkout' is mid-incident. The storefront is down, its
   inventory dependency is unreachable, one of the storefront's ingress

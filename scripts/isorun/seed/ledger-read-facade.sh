@@ -3,10 +3,10 @@
 # fixture, for fast local iteration against an already-standing cluster (no
 # tofu, no cluster build).
 #
-# Fixture: scripts/isorun/fixtures/ledger-read-facade.yaml. Relies on
-# scripts/isorun/cleanup/ledger-read-facade.sh having already deleted the
-# 'ledger' namespace this run (run.sh always runs cleanup before seed); this
-# hook does no separate reset of its own.
+# Fixture: tf/prebuilt/ledger-read-facade-kind/manifests/ledger-read-facade.yaml.
+# Relies on scripts/isorun/cleanup/ledger-read-facade.sh having already
+# deleted the 'ledger' namespace this run (run.sh always runs cleanup before
+# seed); this hook does no separate reset of its own.
 set -euo pipefail
 
 : "${CLUSTER:=devops-bench-kind}"
@@ -15,7 +15,8 @@ set -euo pipefail
 : "${NAMESPACE:=ledger}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FIXTURE="$SCRIPT_DIR/../fixtures/ledger-read-facade.yaml"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+FIXTURE="$REPO_ROOT/tf/prebuilt/ledger-read-facade-kind/manifests/ledger-read-facade.yaml"
 
 echo "==> ledger-read-facade seed: SEED (apply $FIXTURE)"
 kubectl apply -f "$FIXTURE"

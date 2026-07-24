@@ -2,10 +2,8 @@ task_id: 23
 name: "ledger-read-facade"
 infrastructure:
   deployer: "tofu"
-  stack: "prebuilt/kind"
+  stack: "prebuilt/ledger-read-facade-kind"
   teardown: true
-  variables:
-    install_ingress_nginx: true
 prompt: |
   The finance platform team's ledger-balance read facade in namespace
   'ledger' is crash-looping. The Deployment 'ledger-facade' runs nginx with

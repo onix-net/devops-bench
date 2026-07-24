@@ -12,8 +12,11 @@ Usage: run.sh <task.yaml-path> [gemini|oc] [--no-infra|--infra] [--keep] [--no-s
 
   <task.yaml-path>  Path to a task.yaml, absolute or relative to the repo root.
   gemini|oc         Agent to run (default: gemini).
-  --no-infra        Skip infra provisioning; reuse the ambient cluster (default).
-  --infra           Provision infra via tofu (required for tofu-seeded tasks).
+  --no-infra        Skip infra provisioning; reuse a standing, already-seeded
+                    cluster and run the shell cleanup/seed/preflight hooks.
+                    Fast-iteration opt-in against that standing cluster.
+  --infra           Provision infra via tofu (default). Accepted explicitly
+                    as a no-op alias for the default.
   --keep            Do not delete the scratch workspace on exit.
   --no-seed         Skip the cleanup, seed, and preflight hooks entirely; run
                     against whatever state is already on the cluster,
@@ -30,14 +33,15 @@ fi
 
 TASK_ARG="$1"; shift
 AGENT="gemini"
-MODE="--no-infra"
+NO_INFRA=0
 KEEP=0
 NO_SEED=0
 
 for arg in "$@"; do
   case "$arg" in
     gemini|oc) AGENT="$arg" ;;
-    --no-infra|--infra) MODE="$arg" ;;
+    --no-infra) NO_INFRA=1 ;;
+    --infra) ;;
     --keep) KEEP=1 ;;
     --no-seed) NO_SEED=1 ;;
     *)
@@ -68,7 +72,11 @@ fi
 TASKNAME="$(basename "$(dirname "$TASK_PATH")")"
 
 echo "==> Task: $TASKNAME ($TASK_PATH)"
-echo "==> Agent: $AGENT, mode: $MODE"
+if [[ "$NO_INFRA" -eq 1 ]]; then
+  echo "==> Agent: $AGENT, mode: --no-infra"
+else
+  echo "==> Agent: $AGENT, mode: --infra (default, provisioning)"
+fi
 
 # Hard refusal BEFORE the pin below: for tasks whose cleanup hook runs
 # `kubectl delete namespace`, a stray ambient NAMESPACE pointed at a protected
@@ -105,14 +113,19 @@ case "$TASKNAME" in
   *) ;;
 esac
 
-# Verify kubectl actually points at $CLUSTER before touching anything. Reads
-# only (no mutation), so this could run for real even under a dry run; it is
-# still gated the same way as the other steps below purely so a dry run in an
-# environment with no live kubeconfig (e.g. CI) does not fail on this check.
-if [[ "${ISORUN_DRYRUN:-0}" == "1" ]]; then
-  echo "[dry-run] would verify kubectl context matches CLUSTER=$CLUSTER"
-else
-  iso_verify_cluster_context "$CLUSTER"
+# Verify kubectl actually points at $CLUSTER before touching anything. Only
+# applies under --no-infra, which reuses a standing cluster; under the
+# default provisioning path the cluster does not exist yet, so this check
+# would fail. Reads only (no mutation), so this could run for real even
+# under a dry run; it is still gated the same way as the other steps below
+# purely so a dry run in an environment with no live kubeconfig (e.g. CI)
+# does not fail on this check.
+if [[ "$NO_INFRA" -eq 1 ]]; then
+  if [[ "${ISORUN_DRYRUN:-0}" == "1" ]]; then
+    echo "[dry-run] would verify kubectl context matches CLUSTER=$CLUSTER"
+  else
+    iso_verify_cluster_context "$CLUSTER"
+  fi
 fi
 
 CLEANUP_HOOK="$SCRIPT_DIR/cleanup/$TASKNAME.sh"
@@ -123,8 +136,9 @@ PREFLIGHT_HOOK="$SCRIPT_DIR/preflight/$TASKNAME.sh"
 # cleanup or seed hook but no preflight would get the destructive half of this
 # harness with none of the protective half (a re-run could grade a fixture
 # that is missing or already fixed and report a perfect score). Skippable only
-# via --no-seed, which now skips the destructive half too (see below).
-if [[ "$NO_SEED" -eq 0 ]]; then
+# via --no-seed, which now skips the destructive half too (see below). Only
+# applies under --no-infra; under provisioning, tofu owns seeding instead.
+if [[ "$NO_INFRA" -eq 1 && "$NO_SEED" -eq 0 ]]; then
   if { [[ -f "$CLEANUP_HOOK" ]] || [[ -f "$SEED_HOOK" ]]; } && [[ ! -f "$PREFLIGHT_HOOK" ]]; then
     cat <<ABORT >&2
 ==> ABORT: task '$TASKNAME' has a cleanup and/or seed hook but no preflight
@@ -167,7 +181,9 @@ protection. Continuing WITHOUT a lock.
 WARN
 fi
 
-if [[ "$NO_SEED" -eq 1 ]]; then
+if [[ "$NO_INFRA" -eq 0 ]]; then
+  echo "==> Provisioning infra; tofu seeds fixture state during bringup. Skipping shell cleanup/seed/preflight hooks for task '$TASKNAME'."
+elif [[ "$NO_SEED" -eq 1 ]]; then
   echo "==> --no-seed: skipping cleanup, seed, and preflight hooks for task '$TASKNAME'; running against whatever is already on the cluster, unchecked."
 else
   if [[ -x "$CLEANUP_HOOK" ]]; then
@@ -232,14 +248,16 @@ fi
 # The tofu/--no-infra state warning below is now redundant for any task with a
 # seed hook: seed/$TASKNAME.sh and preflight/$TASKNAME.sh handle establishing
 # and verifying that state instead. Only tasks without one still need it.
-if [[ "$MODE" == "--no-infra" ]] && grep -Eq 'deployer:[[:space:]]*"tofu"' "$TASK_PATH" && [[ ! -x "$SEED_HOOK" ]]; then
+if [[ "$NO_INFRA" -eq 1 ]] && grep -Eq 'deployer:[[:space:]]*"tofu"' "$TASK_PATH" && [[ ! -x "$SEED_HOOK" ]]; then
   cat <<WARN >&2
 ############################################################
 WARNING: task '$TASKNAME' uses deployer: "tofu" and depends on
 tofu-SEEDED cluster state (broken configs, Kyverno policies, bare
-GitOps repos, etc). --no-infra will NOT seed that state; it only
-reuses the ambient cluster. If the seed isn't already present,
-re-run with --infra or seed the stack manually before continuing.
+GitOps repos, etc). --no-infra reuses a standing cluster and relies on
+the shell seed hooks (not tofu) to seed that state. This task has no
+seed hook, so if that state isn't already present on the standing
+cluster, drop --no-infra to provision and seed via tofu, or seed the
+stack manually before continuing.
 ############################################################
 WARN
 fi
@@ -257,7 +275,11 @@ export GKE_CLUSTER_NAME="$CLUSTER"
 export AGENT_TIMEOUT_SEC="${AGENT_TIMEOUT_SEC:-1800}"
 
 RESULTS_ROOT="$REPO/results/iso-$TASKNAME"
-CMD=(uv run --project "$REPO" python -m devops_bench "$MODE" --project "$PROJECT" --cluster "$CLUSTER" --results-root "$RESULTS_ROOT" "$TASK_PATH")
+INFRA_FLAG=()
+if [[ "$NO_INFRA" -eq 1 ]]; then
+  INFRA_FLAG=(--no-infra)
+fi
+CMD=(uv run --project "$REPO" python -m devops_bench ${INFRA_FLAG[@]+"${INFRA_FLAG[@]}"} --project "$PROJECT" --cluster "$CLUSTER" --results-root "$RESULTS_ROOT" "$TASK_PATH")
 
 WS="$(iso_stage_ws)"
 if [[ "$KEEP" -eq 0 ]]; then
