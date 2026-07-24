@@ -14,13 +14,13 @@
 
 """Typed schema for benchmark task contracts."""
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from devops_bench.core import get_logger
 
-__all__ = ["Task", "DocumentationEntry", "Constraint"]
+__all__ = ["Task", "DocumentationEntry", "Constraint", "VerificationEntry"]
 
 _log = get_logger("tasks.schema")
 
@@ -112,6 +112,50 @@ class DocumentationEntry(BaseModel):
         return coalesced
 
 
+class VerificationEntry(BaseModel):
+    """One named verification check with a scoring role and evaluation mode.
+
+    Attributes:
+        name: Unique id within the task; the rollup and reports key on it.
+        role: ``objective`` (feeds the correctness score ``c``) or ``safeguard``
+            (a protective invariant).
+        severity: Required when ``role == "safeguard"``, forbidden when
+            ``role == "objective"``. ``recoverable`` penalizes the score;
+            ``catastrophic`` hard-gates it.
+        mode: Evaluation strategy. ``None`` here means "derive from role at run
+            time" (objective -> converge, safeguard -> assert); an explicit value
+            overrides that default.
+        weight: Relative weight in the rollup. Must be positive.
+        check: Raw verifier or combinator-tree mapping. Kept unparsed because it
+            still contains ``{{PLACEHOLDER}}`` tokens at task-load time;
+            substitution and registry dispatch happen later, at run time.
+        hold_window_sec: For ``mode: hold`` only — seconds to sample the check.
+            ``None`` defaults at dispatch time. Must be positive when set.
+        hold_poll_interval_sec: For ``mode: hold`` only — seconds between
+            samples. ``None`` defaults at dispatch time. Must be positive when set.
+    """
+
+    model_config = _STRICT
+
+    name: str
+    role: Literal["objective", "safeguard"]
+    severity: Literal["recoverable", "catastrophic"] | None = None
+    mode: Literal["converge", "assert", "hold"] | None = None
+    weight: float = Field(default=1.0, gt=0)
+    check: dict[str, Any]
+    hold_window_sec: float | None = Field(default=None, gt=0)
+    hold_poll_interval_sec: float | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def _validate_severity_matches_role(self) -> "VerificationEntry":
+        """Enforce that severity is present iff the role is a safeguard."""
+        if self.role == "safeguard" and self.severity is None:
+            raise ValueError("severity is required when role='safeguard'")
+        if self.role == "objective" and self.severity is not None:
+            raise ValueError("severity must not be set when role='objective'")
+        return self
+
+
 class Task(BaseModel):
     """Standardized representation of an evaluation task.
 
@@ -127,6 +171,8 @@ class Task(BaseModel):
             subsystem; may be a mapping, list, or raw JSON string.
         verification_spec: Opaque verification specification parsed by the
             verification subsystem; may be a mapping, list, or raw JSON string.
+        verification_entries: Typed objective/safeguard checks evaluated after the
+            agent runs; ``None`` when the task declares none.
         infrastructure: Deployer and stack settings for the task environment.
         documentation: Documentation entries, each with per-constraint criticality.
         validated: Whether the task has been vetted as correct and is eligible to
@@ -144,6 +190,7 @@ class Task(BaseModel):
     retrieval_context: list[str] = Field(default_factory=list)
     chaos_spec: Any = None
     verification_spec: Any = None
+    verification_entries: list[VerificationEntry] | None = None
     infrastructure: dict[str, Any] = Field(default_factory=dict)
     documentation: list[DocumentationEntry] = Field(default_factory=list)
     validated: bool = False
@@ -204,6 +251,7 @@ class Task(BaseModel):
                 "retrieval_context": [] if retrieval is None else retrieval,
                 "chaos_spec": raw.get("chaos_spec"),
                 "verification_spec": raw.get("verification_spec"),
+                "verification_entries": raw.get("verification_entries"),
                 "infrastructure": {} if infrastructure is None else infrastructure,
                 "documentation": [] if documentation is None else documentation,
                 "validated": False if validated is None else validated,

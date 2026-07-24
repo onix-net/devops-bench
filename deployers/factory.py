@@ -21,7 +21,9 @@ class NoOpDeployer(Deployer):
         self._project_id = project_id
 
     def up(self) -> None:
-        print("[NoOpDeployer] Skipping infrastructure provisioning (deployer: noop / BENCH_NO_INFRA)")
+        print(
+            "[NoOpDeployer] Skipping infrastructure provisioning (deployer: noop / BENCH_NO_INFRA)"
+        )
 
     def down(self) -> None:
         print("[NoOpDeployer] Skipping infrastructure teardown (deployer: noop / BENCH_NO_INFRA)")
@@ -39,7 +41,7 @@ def get_deployer(
     infra_config: Dict[str, Any],
     global_project_id: str,
     global_cluster_name: str,
-    global_location: str = None
+    global_location: str = None,
 ) -> Deployer:
     """
     Factory to instantiate the appropriate infrastructure deployer.
@@ -82,7 +84,5 @@ def get_deployer(
 
     # Fallback to legacy GCPDeployer (kubetest2)
     return GCPDeployer(
-        project=global_project_id,
-        location=location,
-        cluster_name=global_cluster_name
+        project=global_project_id, location=location, cluster_name=global_cluster_name
     )

@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any
 
+
 class Deployer(ABC):
     """
     Abstract base class for cloud-specific infra deployers.

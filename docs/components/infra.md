@@ -54,11 +54,11 @@ The env var outranks the config key so a task can pin a default `provider:` whil
 
 The OpenTofu stacks live under `tf/` (see `tf/README.md`):
 
-- `tf/modules/` — reusable building blocks, currently `gke` (a cluster) and `bastion`.
+- `tf/modules/`: reusable building blocks, currently `gke` (a cluster), `bastion`, and `ingress-nginx` (installs the ingress-nginx controller via Helm).
 - `tf/prebuilt/<stack>/` — standard, ready-to-use stacks. For example:
   - `minimum` — a small GKE cluster (a few `e2-standard-2` nodes), the everyday GCP starting point.
-  - `kind` — a local cluster for offline / no-cloud runs.
-  - Plus task-specific stacks (e.g. `secret-rotation`, `multi-region-failover`) that build on the modules.
+  - `kind`: a local cluster for offline / no-cloud runs. Set the `install_ingress_nginx` variable to `true` to also install the ingress-nginx controller (as a `ClusterIP` Service, so in-cluster `http_probe` checks can reach it by FQDN with no LoadBalancer) via the `tf/modules/ingress-nginx` module; `ingress_service_type` and `ingress_chart_version` pass through the module's Service type and pinned chart version. A reusable capability for any kind-backed task that just needs ingress.
+  - Plus task-specific stacks (e.g. `secret-rotation`, `multi-region-failover`) that build on the modules. `ledger-read-facade` and `checkout-multi-service-outage` each have their own dedicated stack (`tf/prebuilt/ledger-read-facade-kind`, `tf/prebuilt/checkout-multi-service-outage-kind`) rather than using `prebuilt/kind`: each installs the `ingress-nginx` module directly and seeds its broken fixture during `tofu apply` via a `null_resource` running `scripts/setup.sh`, so the task provisions already-broken with no manual setup.
 
 Every stack root that `TFDeployer` drives must output `cluster_name` and `cluster_location` — that's the contract the deployer reads back.
 

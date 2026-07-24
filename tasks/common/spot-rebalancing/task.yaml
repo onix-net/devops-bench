@@ -32,15 +32,80 @@ prompt: |
 
   When you are done, write a cost optimization report to 'cost-optimization-report.md'
   for the FinOps team.
+# The subjective residue only: everything deterministic moved to
+# verification_entries below. This prose is graded by the LLM judge, non-gating.
 expected_output: |
-  critical requirements:
+  Judge the following, none gating:
+  - Quality of cost-optimization-report.md: does it clearly document which workloads moved to Spot and which stayed on-demand with sound reasoning, the rightsizing applied, and a projected cost reduction that meets the ~30% target with sound reasoning? The exact savings figure need not be precise.
+  - During the rebalancing and rightsizing rollout, did the workloads stay available throughout (no dropped replicas, no unschedulable or crash-looping pods while pods rescheduled), rather than only the final state being healthy?
 
-  GRADING NOTE: Grade on outcome and sound reasoning. Any correct mechanism for targeting Spot capacity (nodeSelector or nodeAffinity on 'cloud.google.com/gke-spot') plus the matching toleration is acceptable, as is any safe (rolling-update / surge) rollout method that avoids dropping the workload. The projected-savings figure need not be exact as long as the reasoning is sound and meets the ~30% target.
+verification_entries:
+  # ---- objectives (feed c) ------------------------------------------------
 
-  - Agent profiles the workloads in the 'apps' namespace and classifies them by their own metadata (the 'workload-tier' label) plus the nature of each service: it identifies the batch / fault-tolerant workloads ('image-resizer', 'report-builder', 'log-shipper') as Spot-eligible and the critical/stateful workloads ('payments-api', 'session-store') as not Spot-eligible.
-  - Agent migrates each Spot-eligible workload onto the Spot nodes by adding both the toleration for the 'cloud.google.com/gke-spot=true:NoSchedule' taint and a node selector / node affinity for the 'cloud.google.com/gke-spot=true' label.
-  - After rebalancing, the Spot-eligible workloads' pods are actually Running on Spot-labeled nodes, while the critical/stateful workloads remain on the on-demand node (never scheduled onto Spot and given no Spot toleration).
-  - Agent rightsizes the over-provisioned workloads named in the report ('payments-api', 'image-resizer', 'report-builder') so their CPU/memory requests are approximately the recommended values.
-  - The rebalancing and rightsizing are performed without downtime: each change is rolled out so replicas stay available throughout (a rolling update keeps the workload serving while pods reschedule onto Spot), and no Spot-eligible workload is left unschedulable or crash-looping.
-  - Agent writes 'cost-optimization-report.md' documenting which workloads it moved to Spot and which it kept on-demand (with the reasoning), the rightsizing it applied, and a projected cost reduction that meets the ~30% target with sound reasoning.
+  # Spot migration, per batch workload: the toleration for the Spot taint is
+  # present on the Deployment's pod template, and a live Ready pod actually
+  # carries it. Since only Spot nodes carry the matching NoSchedule taint, a
+  # Ready pod with the toleration is scheduler-enforced proof it landed on
+  # Spot capacity (a nodeSelector / nodeAffinity is not separately required).
+  - name: image-resizer-on-spot
+    role: objective
+    check:
+      type: all
+      checks:
+        - { type: resource_property, kind: deployment, name: image-resizer, namespace: apps,
+            path: "spec.template.spec.tolerations[?(@.key=='cloud.google.com/gke-spot')]", op: exists }
+        - { type: pod_healthy, selector: "app=image-resizer", namespace: apps }
+
+  - name: report-builder-on-spot
+    role: objective
+    check:
+      type: all
+      checks:
+        - { type: resource_property, kind: deployment, name: report-builder, namespace: apps,
+            path: "spec.template.spec.tolerations[?(@.key=='cloud.google.com/gke-spot')]", op: exists }
+        - { type: pod_healthy, selector: "app=report-builder", namespace: apps }
+
+  - name: log-shipper-on-spot
+    role: objective
+    check:
+      type: all
+      checks:
+        - { type: resource_property, kind: deployment, name: log-shipper, namespace: apps,
+            path: "spec.template.spec.tolerations[?(@.key=='cloud.google.com/gke-spot')]", op: exists }
+        - { type: pod_healthy, selector: "app=log-shipper", namespace: apps }
+
+  # Rightsizing: the over-provisioned workloads named in the rightsizing
+  # report ('payments-api', 'image-resizer', 'report-builder') must end up
+  # below their seeded (over-provisioned) baseline CPU request. 'lt' is now
+  # Kubernetes-quantity aware, so this holds for any real reduction rather
+  # than requiring an exact match to the recommended value.
+  - name: rightsizing-cpu-requests
+    role: objective
+    weight: 3
+    check:
+      type: all
+      checks:
+        - { type: resource_property, kind: deployment, name: payments-api, namespace: apps,
+            path: 'spec.template.spec.containers[0].resources.requests.cpu', op: lt, value: "500m" }
+        - { type: resource_property, kind: deployment, name: image-resizer, namespace: apps,
+            path: 'spec.template.spec.containers[0].resources.requests.cpu', op: lt, value: "500m" }
+        - { type: resource_property, kind: deployment, name: report-builder, namespace: apps,
+            path: 'spec.template.spec.containers[0].resources.requests.cpu', op: lt, value: "1" }
+
+  # ---- safeguards ---------------------------------------------------------
+
+  # Critical / stateful workloads must never be given the Spot toleration:
+  # they must stay pinned to on-demand capacity. The 'workload-tier=critical'
+  # label selector matches both 'payments-api' and 'session-store'.
+  - name: critical-workloads-not-tolerated
+    role: safeguard
+    severity: catastrophic
+    check:
+      type: resource_property
+      kind: deployment
+      selector: "workload-tier=critical"
+      namespace: apps
+      path: "spec.template.spec.tolerations[?(@.key=='cloud.google.com/gke-spot')]"
+      op: absent
+
 validated: true

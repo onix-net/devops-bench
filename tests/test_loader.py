@@ -18,6 +18,7 @@ import os
 import pytest
 from pkg.evaluator.loader import load_from_tasks_dir
 
+
 def test_load_from_tasks_dir_recursive():
     # Create a temporary directory structure mimicking tasks
     tmpdir = tempfile.mkdtemp()
@@ -26,7 +27,7 @@ def test_load_from_tasks_dir_recursive():
         generic_dir = os.path.join(tmpdir, "generic", "task-generic")
         os.makedirs(gcp_dir)
         os.makedirs(generic_dir)
-        
+
         # Write task.yaml files
         task_gcp_content = """
 task_id: 1
@@ -44,13 +45,13 @@ expected_output: "Generic Expected"
             f.write(task_gcp_content)
         with open(os.path.join(generic_dir, "task.yaml"), "w") as f:
             f.write(task_generic_content)
-            
+
         # Load all tasks
         tasks = load_from_tasks_dir(tmpdir)
         assert len(tasks) == 2
         assert tasks[0]["name"] == "task-gcp"
         assert tasks[1]["name"] == "task-generic"
-        
+
         # Load only generic tasks
         generic_tasks = load_from_tasks_dir(os.path.join(tmpdir, "generic"))
         assert len(generic_tasks) == 1

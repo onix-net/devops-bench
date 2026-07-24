@@ -14,18 +14,30 @@
 
 """Type-safe verification engine for validating cluster state.
 
-This package exposes the verification spec model
-(:class:`VerificationSpec`, :class:`SequenceSpec`, :class:`ParallelSpec`), its
-typed outcome (:class:`VerificationResult`), the registry-driven extension
-surface (:data:`VERIFIERS`, :func:`parse_node`), and the deadline-based
-:class:`VerifierAgent` that evaluates them. Importing the package pulls no
-heavy SDKs — concrete leaf verifiers register via this package's submodules
-only.
+This package exposes the verification spec model (:class:`VerificationSpec`
+plus the combinators :class:`SequenceSpec`, :class:`ParallelSpec`,
+:class:`AllSpec`, :class:`AnySpec`, :class:`NoneSpec`), its typed outcome
+(:class:`VerificationResult`), the registry-driven extension surface
+(:data:`VERIFIERS`, :func:`parse_node`), the :class:`VerifierAgent` that
+evaluates specs (with per-entry converge/assert/hold modes via
+:meth:`VerifierAgent.run_entry`), and the :func:`rollup` scoring over evaluated
+entries. Importing the package pulls no heavy SDKs; concrete leaf verifiers
+register via this package's submodules only.
 """
 
 from devops_bench.verification.base import VERIFIERS, BaseVerifier, VerificationResult
+from devops_bench.verification.rollup import (
+    EvaluatedEntry,
+    Role,
+    RollupScores,
+    Severity,
+    rollup,
+)
 from devops_bench.verification.runner import VerifierAgent
 from devops_bench.verification.spec import (
+    AllSpec,
+    AnySpec,
+    NoneSpec,
     ParallelSpec,
     SequenceSpec,
     VerificationNode,
@@ -35,9 +47,16 @@ from devops_bench.verification.spec import (
 )
 
 __all__ = [
+    "AllSpec",
+    "AnySpec",
     "BaseVerifier",
+    "EvaluatedEntry",
+    "NoneSpec",
     "ParallelSpec",
+    "Role",
+    "RollupScores",
     "SequenceSpec",
+    "Severity",
     "VERIFIERS",
     "VerificationNode",
     "VerificationResult",
@@ -45,4 +64,5 @@ __all__ = [
     "VerifierAgent",
     "json_schema",
     "parse_node",
+    "rollup",
 ]

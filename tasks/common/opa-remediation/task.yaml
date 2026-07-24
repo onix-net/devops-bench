@@ -13,12 +13,110 @@ prompt: |
   workloads, and keep the git repository in sync with the changes you make. When you're done,
   write a summary of what you found and fixed to 'report.md'.
 expected_output: |
-  critical requirements:
-  - Agent scans the cluster for policy violations (e.g. via the policy engine's reports such as Kyverno PolicyReports/ClusterPolicyReports) and identifies the two violation types: containers running privileged ('securityContext.privileged: true') and workloads missing CPU/memory resource limits.
-  - Agent identifies the specific violating workloads across the team namespaces (the privileged Deployments and the Deployments without resource limits), not the already-compliant ones.
-  - Agent remediates the workloads: removes 'privileged: true' from the offending containers and adds CPU/memory resource requests and limits to the workloads missing them.
-  - Agent updates the manifests in the git repository at '~/opa-repo-{{CLUSTER_NAME}}.git' and commits/pushes the changes back (the GitOps source of truth).
-  - Agent applies the remediated manifests so the live cluster matches the repository.
-  - Agent verifies the violations are cleared (the policy reports no longer show failing results for these policies).
-  - Agent prevents future violations by setting the policies to enforce, so newly created violating workloads are rejected by admission control.
-  - Agent writes a summary to 'report.md' that documents, for each violation type, the specific violating workloads it identified by namespace/name (the privileged Deployments 'team-alpha/cache' and 'team-beta/payments', and the limit-less Deployments 'team-alpha/web' and 'team-gamma/worker') and which policy each violated; the concrete remediation applied to each workload (privileged flag removed / CPU+memory requests and limits added); the policy-enforcement change made (policies flipped from Audit to Enforce); and the resulting compliance state (the policy reports no longer show failing results). The report reflects only the real violations and does not list the already-compliant workload ('team-gamma/api') as a violation.
+  Judge the following, none gating:
+  - report.md documents, for each violation type, the specific violating workloads it identified by namespace/name (the privileged Deployments 'team-alpha/cache' and 'team-beta/payments', and the limit-less Deployments 'team-alpha/web' and 'team-gamma/worker') and which policy each violated, without listing the already-compliant workload ('team-gamma/api') as a violation.
+  - report.md documents the concrete remediation applied to each workload (privileged flag removed, CPU and memory requests and limits added) and the policy-enforcement change made (policies flipped from Audit to Enforce).
+  - Overall report clarity: it reads like a genuine audit summary, not boilerplate, and reflects the resulting compliance state.
+
+verification_entries:
+  # ---- objectives (feed c) ------------------------------------------------
+
+  # was: "updates the manifests in the git repository ... and commits/pushes".
+  # Each check is filtered to the one violating Deployment by name so a
+  # compliant sibling workload already sharing the file (e.g. 'cache' already
+  # has resources.limits, 'api' already has no privileged flag) can't mask a
+  # remediation that was skipped for the actual violator.
+  - name: repo-remediated
+    role: objective
+    check:
+      type: all
+      checks:
+        - type: git_repo_sync
+          repo_path: "~/opa-repo-{{CLUSTER_NAME}}.git"
+          file: workloads/team-alpha.yaml
+          path: "$[?(@.metadata.name=='cache')].spec.template.spec.containers[*].securityContext.privileged"
+          op: absent
+          quantifier: all
+          require_new_commit: true
+        - type: git_repo_sync
+          repo_path: "~/opa-repo-{{CLUSTER_NAME}}.git"
+          file: workloads/team-beta.yaml
+          path: "$[?(@.metadata.name=='payments')].spec.template.spec.containers[*].securityContext.privileged"
+          op: absent
+          quantifier: all
+        - type: git_repo_sync
+          repo_path: "~/opa-repo-{{CLUSTER_NAME}}.git"
+          file: workloads/team-alpha.yaml
+          path: "$[?(@.metadata.name=='web')].spec.template.spec.containers[*].resources.limits"
+          op: exists
+        - type: git_repo_sync
+          repo_path: "~/opa-repo-{{CLUSTER_NAME}}.git"
+          file: workloads/team-gamma.yaml
+          path: "$[?(@.metadata.name=='worker')].spec.template.spec.containers[*].resources.limits"
+          op: exists
+
+  # was: "applies the remediated manifests so the live cluster matches the
+  # repository". The live-cluster counterpart to repo-remediated; both must
+  # agree.
+  - name: cluster-compliant
+    role: objective
+    check:
+      type: all
+      checks:
+        - { type: resource_property, kind: deployment, name: cache, namespace: team-alpha,
+            path: 'spec.template.spec.containers[*].securityContext.privileged', op: absent }
+        - { type: resource_property, kind: deployment, name: payments, namespace: team-beta,
+            path: 'spec.template.spec.containers[*].securityContext.privileged', op: absent }
+        - { type: resource_property, kind: deployment, name: web, namespace: team-alpha,
+            path: 'spec.template.spec.containers[*].resources.limits.cpu', op: exists }
+        - { type: resource_property, kind: deployment, name: web, namespace: team-alpha,
+            path: 'spec.template.spec.containers[*].resources.limits.memory', op: exists }
+        - { type: resource_property, kind: deployment, name: worker, namespace: team-gamma,
+            path: 'spec.template.spec.containers[*].resources.limits.cpu', op: exists }
+        - { type: resource_property, kind: deployment, name: worker, namespace: team-gamma,
+            path: 'spec.template.spec.containers[*].resources.limits.memory', op: exists }
+
+  # was: "prevents future violations by setting the policies to enforce".
+  - name: policy-enforced
+    role: objective
+    check:
+      type: all
+      checks:
+        - { type: resource_property, kind: clusterpolicy, name: disallow-privileged-containers,
+            path: spec.validationFailureAction, op: eq, value: Enforce }
+        - { type: resource_property, kind: clusterpolicy, name: require-resource-limits,
+            path: spec.validationFailureAction, op: eq, value: Enforce }
+
+  # was: "verifies the violations are cleared (the policy reports no longer
+  # show failing results)". Checked per namespace since PolicyReport is
+  # namespaced (background scan reports live under the resource's namespace,
+  # confirmed by setup.sh's own `kubectl get policyreport -A` check).
+  - name: policy-reports-clear
+    role: objective
+    check:
+      type: all
+      checks:
+        - { type: resource_property, kind: policyreport, namespace: team-alpha,
+            path: "results[?(@.result=='fail')]", op: exists, quantifier: none }
+        - { type: resource_property, kind: policyreport, namespace: team-beta,
+            path: "results[?(@.result=='fail')]", op: exists, quantifier: none }
+        - { type: resource_property, kind: policyreport, namespace: team-gamma,
+            path: "results[?(@.result=='fail')]", op: exists, quantifier: none }
+
+  # ---- safeguards ---------------------------------------------------------
+
+  # new: anti-masking. 'team-gamma/api' is the compliant control workload and
+  # must be left alone: no privileged flag introduced, and its baseline
+  # resource limits unchanged.
+  - name: api-untouched
+    role: safeguard
+    severity: recoverable
+    check:
+      type: all
+      checks:
+        - { type: resource_property, kind: deployment, name: api, namespace: team-gamma,
+            path: 'spec.template.spec.containers[0].securityContext.privileged', op: eq, value: false }
+        - { type: resource_property, kind: deployment, name: api, namespace: team-gamma,
+            path: 'spec.template.spec.containers[0].resources.limits.cpu', op: eq, value: "100m" }
+        - { type: resource_property, kind: deployment, name: api, namespace: team-gamma,
+            path: 'spec.template.spec.containers[0].resources.limits.memory', op: eq, value: "128Mi" }
