@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Seed hook for tasks/common/checkout-multi-service-outage: apply the
+# broken-checkout-chain fixture, for fast local iteration against an
+# already-standing cluster (no tofu, no cluster build).
+#
+# Fixture: scripts/isorun/fixtures/checkout-multi-service-outage.yaml.
+# Relies on scripts/isorun/cleanup/checkout-multi-service-outage.sh having
+# already deleted the 'checkout' namespace this run (run.sh always runs
+# cleanup before seed); this hook does no separate reset of its own.
+set -euo pipefail
+
+: "${CLUSTER:=devops-bench-kind}"
+: "${PROJECT:=}"
+: "${REGION:=local}"
+: "${NAMESPACE:=checkout}"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FIXTURE="$SCRIPT_DIR/../fixtures/checkout-multi-service-outage.yaml"
+
+echo "==> checkout-multi-service-outage seed: SEED (apply $FIXTURE)"
+kubectl apply -f "$FIXTURE"
+
+echo "==> checkout-multi-service-outage seed: done. Four faults are present: storefront-edge readinessProbe port 9999, inventory-db Service selector mismatch, Ingress / only with Exact pathType, promo-banner literal env shadowing its ConfigMap."

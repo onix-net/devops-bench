@@ -1,0 +1,446 @@
+# Seeded fixture for tasks/common/checkout-multi-service-outage. Hand-
+# maintained, applied via raw `kubectl apply -f` (no templating), so every
+# object below hardcodes namespace: checkout.
+#
+# SEEDED FAULTS (see verification_entries in task.yaml for the graded
+# dimensions):
+#   A. storefront-edge readinessProbe.httpGet.port is 9999 (nginx listens on
+#      8080), so the pod runs but never becomes Ready and drops out of the
+#      Service endpoints.
+#   B. the inventory-db Service selector is app: inventory-db-renamed, which
+#      matches no pods, so its EndpointSlice is empty and inventory-api's
+#      proxy 502s.
+#   C. the Ingress registers only path / with pathType: Exact, so /reports
+#      404s.
+#   D. promo-banner's PROMO_MESSAGE env is a literal "STALE-PRICE-1999"
+#      instead of a configMapKeyRef, shadowing the ledger ConfigMap value.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: checkout
+---
+# --- storefront-edge (nginx facade in front of cart-api) -----------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: storefront-edge-nginx
+  namespace: checkout
+data:
+  nginx.conf: |
+    pid /var/run/nginx.pid;
+    events {}
+    http {
+      server {
+        listen 8080;
+        location / {
+          proxy_pass http://cart-api.checkout.svc.cluster.local:80;
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: storefront-edge
+  namespace: checkout
+  labels:
+    app: storefront-edge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: storefront-edge
+  template:
+    metadata:
+      labels:
+        app: storefront-edge
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: storefront-edge
+          image: nginxinc/nginx-unprivileged:1.27-alpine
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: nginx-conf
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: run
+              mountPath: /var/run
+            - name: cache
+              mountPath: /var/cache/nginx
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            # SEEDED FAULT A: port 9999 is wrong; nginx listens on 8080. The
+            # pod runs but never passes readiness and never joins the
+            # Service endpoints. Fix: change port to 8080.
+            httpGet:
+              path: /
+              port: 9999
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+      volumes:
+        - name: nginx-conf
+          configMap:
+            name: storefront-edge-nginx
+        - name: run
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: storefront-edge
+  namespace: checkout
+spec:
+  selector:
+    app: storefront-edge
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+# --- cart-api (traefik/whoami, healthy backend for storefront-edge / '/reports') ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cart-api
+  namespace: checkout
+  labels:
+    app: cart-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cart-api
+  template:
+    metadata:
+      labels:
+        app: cart-api
+    spec:
+      containers:
+        - name: cart-api
+          image: traefik/whoami:v1.10
+          ports:
+            - containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cart-api
+  namespace: checkout
+spec:
+  selector:
+    app: cart-api
+  ports:
+    - port: 80
+      targetPort: 80
+---
+# --- inventory-api (nginx facade) in front of inventory-db (go-httpbin) ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inventory-api-nginx
+  namespace: checkout
+data:
+  nginx.conf: |
+    pid /var/run/nginx.pid;
+    events {}
+    http {
+      server {
+        listen 8080;
+        location / {
+          proxy_pass http://inventory-db.checkout.svc.cluster.local:80/status/200;
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-api
+  namespace: checkout
+  labels:
+    app: inventory-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inventory-api
+  template:
+    metadata:
+      labels:
+        app: inventory-api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: inventory-api
+          image: nginxinc/nginx-unprivileged:1.27-alpine
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: nginx-conf
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: run
+              mountPath: /var/run
+            - name: cache
+              mountPath: /var/cache/nginx
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+      volumes:
+        - name: nginx-conf
+          configMap:
+            name: inventory-api-nginx
+        - name: run
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory-api
+  namespace: checkout
+spec:
+  selector:
+    app: inventory-api
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-db
+  namespace: checkout
+  labels:
+    app: inventory-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inventory-db
+  template:
+    metadata:
+      labels:
+        app: inventory-db
+    spec:
+      containers:
+        - name: inventory-db
+          image: ghcr.io/mccutchen/go-httpbin:v2.15.0
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /status/200
+              port: 8080
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory-db
+  namespace: checkout
+spec:
+  # SEEDED FAULT B: selector app: inventory-db-renamed matches no pods (the
+  # pod label above is app: inventory-db), so this Service has no
+  # endpoints and inventory-api's proxy 502s. Fix: change the selector to
+  # app: inventory-db.
+  selector:
+    app: inventory-db-renamed
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+# --- promo-banner (hashicorp/http-echo, config-through-args) -------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: promo-config
+  namespace: checkout
+data:
+  message: "CURRENT-PRICE-4999"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: promo-banner
+  namespace: checkout
+  labels:
+    app: promo-banner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: promo-banner
+  template:
+    metadata:
+      labels:
+        app: promo-banner
+    spec:
+      containers:
+        - name: promo-banner
+          image: hashicorp/http-echo:1.0.0
+          args: ["-text=$(PROMO_MESSAGE)", "-listen=:8080"]
+          env:
+            # SEEDED FAULT D: a literal value shadows the intended
+            # ConfigMap-sourced value below. Fix: replace this literal with
+            # valueFrom.configMapKeyRef (ConfigMap promo-config, key
+            # message).
+            - name: PROMO_MESSAGE
+              value: "STALE-PRICE-1999"
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 25m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: promo-banner
+  namespace: checkout
+spec:
+  selector:
+    app: promo-banner
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+# --- host-less path Ingress -----------------------------------------------
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: checkout
+  namespace: checkout
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          # SEEDED FAULT C: only / is registered, and with pathType: Exact
+          # (an exact match on "/" cannot also match "/reports"), so
+          # /reports 404s. Fix: add a /reports path (pathType: Prefix)
+          # routing to cart-api, and change this path's pathType to Prefix
+          # so both routes resolve.
+          - path: /
+            pathType: Exact
+            backend:
+              service:
+                name: storefront-edge
+                port:
+                  number: 80
+---
+# --- distractors: correct terminal state, leave alone --------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: legacy-pricing-batch
+  namespace: checkout
+  labels:
+    app: legacy-pricing-batch
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: legacy-pricing-batch
+  template:
+    metadata:
+      labels:
+        app: legacy-pricing-batch
+    spec:
+      containers:
+        - name: batch
+          image: busybox:1.36
+          command: ["sleep", "3600"]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: checkout-smoke-once
+  namespace: checkout
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: smoke
+          image: busybox:1.36
+          command: ["true"]
