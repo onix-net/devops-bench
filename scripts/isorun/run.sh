@@ -77,7 +77,7 @@ echo "==> Agent: $AGENT, mode: $MODE"
 # or, worse, reaching a `kubectl delete namespace` call. Pure string check: no
 # kubectl call, so this always runs, dry-run or not.
 case "$TASKNAME" in
-  cp-recovery|cve-remediation|migration-and-upgrade|opa-remediation|secret-rotation|spot-rebalancing)
+  cp-recovery|cve-remediation|ledger-read-facade|migration-and-upgrade|opa-remediation|secret-rotation|spot-rebalancing)
     if [[ -n "${NAMESPACE:-}" ]]; then
       iso_refuse_protected_namespace "$NAMESPACE"
     fi
@@ -99,6 +99,7 @@ case "$TASKNAME" in
   cp-recovery) NAMESPACE="cp-recovery" ;;
   migration-and-upgrade) NAMESPACE="migration" ;;
   spot-rebalancing) NAMESPACE="apps" ;;
+  ledger-read-facade) NAMESPACE="ledger" ;;
   fix-config|deploy-config|optimize-scale) NAMESPACE="${NAMESPACE:-default}" ;;
   *) ;;
 esac
