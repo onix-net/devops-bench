@@ -51,11 +51,26 @@ prompt: |
         serviceAccount: hypercomputer-d1-vllm-sa
         serviceAccountName: hypercomputer-d1-vllm-sa
   ```
+# The subjective residue only: everything deterministic moved to
+# verification_entries below. This prose is graded by the LLM judge, non-gating.
 expected_output: |
-  critical requirements:
+  Judge the following, none gating:
+  - The agent explains the root cause (USE_GEMINI_API misconfigured to 'true') and how the applied change fixes it.
+  - The change was applied as a minimal, targeted update (e.g. kubectl apply or patch) rather than an unrelated recreate that would cause avoidable Pod churn.
 
-  - Identify the intent to update the 'hypercomputer-d1-frontend' deployment in cluster '{{GKE_CLUSTER_NAME}}' and project '{{GCP_PROJECT_ID}}'.
-  - Confirm that 'USE_GEMINI_API' is set to 'false' and 'VLLM_API_URL' is correctly pointed to the local service.
-  - Validate that the agent actually applied the manifest to the cluster using tools (e.g., kubectl) rather than just showing the YAML.
-
-  Expected Manifest Generated: N/A, not a manifest generation request.
+verification_entries:
+  # was: "Confirm USE_GEMINI_API is 'false'" + "VLLM_API_URL points at the local
+  #      service" + "Validate the agent applied via kubectl rather than just
+  #      showing the YAML". Applying is implied: these are live cluster field
+  #      reads, so the values can only match if the manifest was actually
+  #      applied, not merely displayed.
+  - name: config-restored
+    role: objective
+    check:
+      type: all
+      checks:
+        - { type: resource_property, kind: deployment, name: hypercomputer-d1-frontend, namespace: default,
+            path: "spec.template.spec.containers[0].env[?(@.name=='USE_GEMINI_API')].value", op: eq, value: "false" }
+        - { type: resource_property, kind: deployment, name: hypercomputer-d1-frontend, namespace: default,
+            path: "spec.template.spec.containers[0].env[?(@.name=='VLLM_API_URL')].value", op: eq,
+            value: "http://hypercomputer-d1-vllm-service:8000/v1/chat/completions" }

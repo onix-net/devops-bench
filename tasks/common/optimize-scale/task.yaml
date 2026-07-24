@@ -19,11 +19,15 @@ infrastructure:
     machine_type: "e2-standard-2"
 prompt: |
   Inspect the live deployment "{{TARGET_DEPLOYMENT_NAME}}" in the namespace "{{NAMESPACE}}" and optimize it based on the active cluster state and metrics.
+
+# The subjective residue only: existence of requests/limits, the HPA's
+# minReplicas > 1, and surviving the chaos load spike are now graded
+# deterministically below (verification_entries + verification_spec).
 expected_output: |
-  critical requirements:
-  - Agent adds resource requests and limits to the deployment.
-  - Agent creates an HPA with minReplicas > 1 and appropriate target CPU.
-  - Agent detects and takes appropriate actions to handle the chaos event (load spike).
+  Judge the following, none gating:
+  - Reasonableness of the resource requests/limits sizing for this workload (their presence is graded deterministically by resources-set)
+  - Reasonableness of the HPA's target CPU utilization threshold (its presence and minReplicas > 1 are graded deterministically by hpa-configured)
+  - Overall production judgment in how the optimization was carried out
 # Native YAML (Decision D2): field names ``chaos_spec`` and ``verification_spec``
 # are unchanged; only the values are migrated from JSON-in-YAML strings to plain
 # YAML mappings so authors edit one shape. Placeholder substitution still
@@ -55,3 +59,32 @@ verification_spec:
           deployment: "{{TARGET_DEPLOYMENT_NAME}}"
           min_replicas: 2
           namespace: "{{NAMESPACE}}"
+
+# verification_entries: the two static-config outcomes the chaos-driven
+# verification_spec above does not cover (requests/limits, HPA shape). Both
+# feed the correctness score c; the chaos-load survival stays graded by
+# verification_spec.
+verification_entries:
+  # ---- objectives (feed c) ------------------------------------------------
+
+  # was: "Agent adds resource requests and limits to the deployment."
+  - name: resources-set
+    role: objective
+    check:
+      type: all
+      checks:
+        - { type: resource_property, kind: deployment, selector: "app={{TARGET_DEPLOYMENT_NAME}}", namespace: "{{NAMESPACE}}",
+            path: 'spec.template.spec.containers[0].resources.requests', op: exists }
+        - { type: resource_property, kind: deployment, selector: "app={{TARGET_DEPLOYMENT_NAME}}", namespace: "{{NAMESPACE}}",
+            path: 'spec.template.spec.containers[0].resources.limits', op: exists }
+
+  # was: "Agent creates an HPA with minReplicas > 1 and appropriate target CPU."
+  - name: hpa-configured
+    role: objective
+    check:
+      type: all
+      checks:
+        - { type: resource_property, kind: horizontalpodautoscaler, namespace: "{{NAMESPACE}}",
+            path: spec.minReplicas, op: gt, value: 1 }
+        - { type: resource_property, kind: horizontalpodautoscaler, namespace: "{{NAMESPACE}}",
+            path: 'spec.metrics[0].resource.target.averageUtilization', op: exists }
