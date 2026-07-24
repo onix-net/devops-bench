@@ -15,12 +15,13 @@
 """Task contracts: the typed schema and loaders for benchmark tasks."""
 
 from devops_bench.tasks.loader import FileSystemTaskLoader, TaskLoader
-from devops_bench.tasks.schema import Constraint, DocumentationEntry, Task
+from devops_bench.tasks.schema import Constraint, DocumentationEntry, Task, VerificationEntry
 
 __all__ = [
     "Task",
     "Constraint",
     "DocumentationEntry",
+    "VerificationEntry",
     "TaskLoader",
     "FileSystemTaskLoader",
 ]
