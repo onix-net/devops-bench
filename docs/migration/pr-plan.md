@@ -16,7 +16,7 @@ To ensure a smooth, error-free upstream review process, every PR must adhere to 
 3. **Keep the Frontier Documented**: Immediately after an upstream PR merges, uncomment its paths in `migrated.bara.sky` in a small, reviewed `gke-labs` PR (refer to [README.md](./README.md) §4 Step 2.2 for details). This locks the paths and activates the back-sync bot.
 4. **All PRs are Disposable**: If a forward PR becomes stale, close it and re-assemble a clean one using `prep-export.sh`.
 5. **No Cross-Border Imports**: Banish imports of un-migrated paths in migrated code to maintain a clean boundary.
-6. **Smallest reviewable unit**: Prefer the finest PR that still builds and tests green. Once a shared base/registry has landed, migrate **one concrete per PR** — one CLI agent, one verifier, one fault, one deployer engine, one model provider, one task — rather than a whole family at once. This keeps upstream reviews fast and isolates any back-sync issue to a single concrete. The stage groupings in §2 are logical buckets; each typically expands into several granular PRs (enumerated in §3.2).
+6. **Smallest reviewable unit**: Prefer the finest PR that still builds and tests green. Once a shared base/registry has landed, migrate **one concrete per PR** — one CLI agent, one verifier, one fault, one deployer engine, one model provider, one task — rather than a whole family at once. This keeps upstream reviews fast and isolates any back-sync issue to a single concrete. The stage groupings in §2 are logical buckets; each typically expands into several granular PRs (enumerated in §3.2). *Exception:* waves **4–5** batch related concretes into **owner-scoped PRs** (9 PRs total) to cap review overhead; a back-sync issue there bisects to a batch rather than a concrete — an accepted trade-off.
 7. **Dependencies travel with their code**: `pyproject.toml`/`uv.lock` are `NEVER_SYNC` (managed per-repo), so a package can't be staged upstream ahead of its code. A PR that introduces a new third-party import must add that package to `pyproject.toml` and refresh `uv.lock` **in the same PR** (the `migration-prep` skill does this). `core/` is pure-stdlib and adds none.
 
 ---
@@ -98,7 +98,7 @@ Every owner completes the [README.md](./README.md) §2 prerequisites independent
 
 ### 3.2 PRs by wave
 
-Every PR carries a **wave number**. **All PRs in a wave are mutually independent and ship in parallel**; a wave opens only once *every* PR in the prior wave is merged upstream **and flipped** in `migrated.bara.sky` (so later PRs can import them via the back-sync). The waves are **derived from the real import edges in `devops_bench/`** (verified against the tree), so nothing in a wave imports anything else in the same wave. Load is balanced at **8–9 PRs per owner**. Waves **1–2** are the unavoidable serial bootstrap (toolchain, then `core/`, imported everywhere); **3–5** are the parallel bulk; **6–8** are the serial orchestrator tail + entrypoints; **9** is the benchmark data — each task coupled with the `tf/prebuilt/` stack it provisions (one PR + one `flip-group` per pair) — gated on the full pipeline so tasks are validated upstream before flipping.
+Every PR carries a **wave number**. **All PRs in a wave are mutually independent and ship in parallel**; a wave opens only once *every* PR in the prior wave is merged upstream **and flipped** in `migrated.bara.sky` (so later PRs can import them via the back-sync). The waves are **derived from the real import edges in `devops_bench/`** (verified against the tree), so nothing in a wave imports anything else in the same wave. **Waves 4–5 are batched into owner-scoped PRs** (7 + 2 = 9 PRs); each batch is authored by someone who did **not** build that area originally (per the pre-refactor `pkg/` history), with the area's main past contributors as reviewers — fresh eyes write, the experts review. Two wave-4 batches (verification verifiers, concrete metrics) were pulled forward from wave 5: each imports a same-wave batch — the one exception to the same-wave-independence rule — so it opens as soon as its basis PR merges upstream rather than waiting for the prior wave to flip. Waves **1–2** are the unavoidable serial bootstrap (toolchain, then `core/`, imported everywhere); **3–5** are the parallel bulk; **6–7** are the serial orchestrator tail + entrypoints; **8** is the benchmark data — each task coupled with the `tf/prebuilt/` stack it provisions (one PR + one `flip-group` per pair) — gated on the full pipeline so tasks are validated upstream before flipping.
 
 | Wave | PR | Paths | Imports (basis) | Owner |
 |:--:|---|---|---|---|
@@ -106,45 +106,28 @@ Every PR carries a **wave number**. **All PRs in a wave are mutually independent
 | **2** | foundation `core/` | `core/*` (registry, context, results, logging, subprocess, errors, config, run_env) | toolchain | **Pradeep** |
 | **3** | `tasks/` contracts | `tasks/schema.py`, `tasks/loader.py` | core | **Jessie** |
 | **3** | `skills/` guides | `skills/` (packaged `*.md` guides) | — | **Jessie** |
-| **3** | metrics base | `metrics/base.py` (METRICS registry), plus `__init__.py` trimmed to the base surface — each family PR re-adds its imports, so the init reaches parity (and flips) only after wave 5 | core | **Jessie** |
+| **3** | metrics base | `metrics/base.py` (METRICS registry), plus `__init__.py` trimmed to the base surface — each family PR re-adds its imports, so the init reaches parity (and flips) only after wave 4 | core | **Jessie** |
 | **3** | models base | `models/base.py`, `models/utils/loop.py` (`run_tool_loop`) | core | **Richard** |
 | **3** | agents base | `agents/base.py`, `config.py`, `result.py`, `capabilities/*` | core | **Simran** |
 | **3** | `k8s/` wrappers | `k8s/kubectl.py`, `k8s/conditions.py` | core | **Eugene** |
 | **3** | `providers/` | `providers/base.py`, `providers/gcp.py`, `providers/kind.py` | core | **Eugene** |
 | **3** | Terraform modules | `tf/modules/` *(no code deps — only needs to precede stacks in wave 4)* | — | **Eugene** |
 | **3** | `results/` model | `results/row.py`, `aggregate.py`, `normalize.py` | core | **Pradeep** |
-| **4** | models: gemini client | `models/gemini.py` | models base | **Richard** |
-| **4** | models: claude client | `models/claude.py` | models base | **Richard** |
-| **4** | models: ollama client | `models/ollama.py` | models base | **Richard** |
-| **4** | **gemini CLI agent** | `agents/cli/gemini_cli/` (agent, parsing) | agents base | **Richard** |
-| **4** | MCP client | `agents/api/mcp.py` | core | **Richard** |
-| **4** | **openclaw CLI agent** | `agents/cli/openclaw/` (agent, parsing) | agents base | **Simran** |
-| **4** | agents shared | `agents/shared/cli_capabilities.py`, `shared/skills.py` | agents base | **Simran** |
-| **4** | chaos base **(replaces upstream `agents/chaos/`)** | adds `chaos/base.py`, `agent.py`, `schema.py`, `spec.py`; **`git rm` the 3 superseded `agents/chaos/` files** | core, models base | **Simran** |
-| **4** | verification base | `verification/base.py`, `spec.py`, `runner.py` | core, k8s | **Jessie** |
-| **4** | metrics judge | `metrics/geval.py`, `pipeline.py`, `_skills.py` | core, models base, skills, metrics base | **Jessie** |
-| **4** | deployers base | `deployers/base.py`, `factory.py` | core, providers | **Eugene** |
-| **4** | default kind stack | `tf/prebuilt/kind/` (the harness's default stack; task-specific stacks ship with their task in wave 9) | tf modules | **Eugene** |
-| **4** | `evalharness/reporter` | `evalharness/reporter.py` | core, results | **Simran** |
-| **5** | deployers: tofu engine | `deployers/tofu.py` | deployers base | **Eugene** |
-| **5** | deployers: noop engine | `deployers/noop.py` | deployers base | **Eugene** |
-| **5** | API agent | `agents/api/agent.py`, `api/skills.py` | agents base, models, mcp | **Richard** |
-| **5** | chaos: generate-load fault | `chaos/faults/generate_load.py` | chaos base, k8s | **Simran** |
-| **5** | chaos: time-delay trigger | `chaos/triggers/time_delay.py` | chaos base | **Simran** |
-| **5** | verification: pod-healthy | `verification/verifiers/pod_healthy.py` | verification base | **Jessie** |
-| **5** | verification: scaling-complete | `verification/verifiers/scaling_complete.py` | verification base | **Jessie** |
-| **5** | metric: grounding | `metrics/grounding.py` | metrics judge | **Pradeep** |
-| **5** | metric: tool-invocation | `metrics/tool_invocation.py` | metrics judge | **Pradeep** |
-| **5** | metric: checklist | `metrics/checklist.py` | metrics judge | **Pradeep** |
-| **5** | metric: outcome-validity | `metrics/outcome_validity.py` | metrics judge | **Jessie** |
-| **5** | metric: chaos-metrics | `metrics/chaos_metrics.py` | metrics judge | **Jessie** |
-| **6** | harness base + scenario | `evalharness/base.py`, `artifacts.py`, `scenario.py` | agents, chaos, verification, deployers | **Simran** |
-| **7** | default eval harness | `evalharness/default.py` | harness base, metrics, results, tasks | **Simran** |
-| **8** | CLI entrypoint | `cli.py`, `__main__.py`, `run.py` | evalharness, metrics, tasks | **Pradeep** |
-| **8** | integration tests | `tests/integration/` | everything | **Pradeep** |
-| **9** | task + stack pairs (common) | each `tasks/common/<task>/` in one PR with the `tf/prebuilt/` stack it provisions; the pair shares a `flip-group` and flips together | tasks contracts + full pipeline (wave 8) | **Eugene** |
-| **9** | task + stack pairs (gcp) | each `tasks/gcp/<task>/` with its stack; shared stacks (`minimum`, `hypercomputer-d1`) carry all their tasks in one flip-group | tasks contracts + full pipeline (wave 8) | **Richard** |
-| **9** | kind + noop tasks | `tasks/kind/cp-recovery/` + its stack; `tasks/noop/` (no stacks) | tasks contracts + full pipeline (wave 8) | **Pradeep** |
+| **4** | models provider clients + **gemini CLI agent** | `models/gemini.py`, `claude.py`, `ollama.py`; `agents/cli/gemini_cli/` (agent, parsing) | models base, agents base | **Richard** *(review: Jessie, Simran)* |
+| **4** | **openclaw CLI agent** + agents shared + chaos base **(replaces upstream `agents/chaos/`)** | `agents/cli/openclaw/` (agent, parsing); `agents/shared/cli_capabilities.py`, `shared/skills.py`; adds `chaos/base.py`, `agent.py`, `schema.py`, `spec.py`; **`git rm` the 3 superseded `agents/chaos/` files** | core, agents base, models base | **Pradeep** *(review: Simran, Jessie)* |
+| **4** | verification base + metrics judge | `verification/base.py`, `spec.py`, `runner.py`; `metrics/geval.py`, `pipeline.py`, `_skills.py` | core, k8s, models base, skills, metrics base | **Eugene** *(review: Jessie)* |
+| **4** | deployers base + engines + default kind stack | `deployers/base.py`, `factory.py`, `tofu.py`, `noop.py`; `tf/prebuilt/kind/` (the harness's default stack; task-specific stacks ship with their task in wave 8) | core, providers, tf modules | **Simran** *(review: Richard, Eugene, Jessie)* |
+| **4** | `evalharness/reporter` | `evalharness/reporter.py` | core, results | **Jessie** *(review: Pradeep)* |
+| **4** | verification verifiers *(pulled forward from wave 5)* | `verification/verifiers/pod_healthy.py`, `scaling_complete.py` | verification base (same wave) | **Simran** *(review: Jessie, Pradeep)* |
+| **4** | concrete metrics *(pulled forward from wave 5)* | `metrics/grounding.py`, `tool_invocation.py`, `checklist.py`, `outcome_validity.py`, `chaos_metrics.py` *(one PR restores the full `metrics/__init__.py` surface, so the init flips right after — see the wave-3 metrics base row)* | metrics judge (same wave), skills | **Eugene** *(review: Jessie, Richard)* |
+| **5** | API agent + MCP client | `agents/api/agent.py`, `api/skills.py`, `api/mcp.py` *(`mcp.py` could ship in wave 4 on its basis, but its only importer is the API agent, so it travels here)* | agents base, models clients | **Richard** *(review: Simran)* |
+| **5** | chaos concretes | `chaos/faults/generate_load.py`, `chaos/triggers/time_delay.py` | chaos base, k8s | **Jessie** *(review: Simran)* |
+| **6** | eval harness (base + scenario + default) | `evalharness/base.py`, `artifacts.py`, `scenario.py`, `default.py` | agents, chaos, verification, deployers, metrics, results, tasks | **Jessie** |
+| **7** | CLI entrypoint | `cli.py`, `__main__.py`, `run.py` | evalharness, metrics, tasks | **Pradeep** |
+| **7** | integration tests | `tests/integration/` | everything | **Pradeep** |
+| **8** | task + stack pairs (common) | each `tasks/common/<task>/` in one PR with the `tf/prebuilt/` stack it provisions; the pair shares a `flip-group` and flips together | tasks contracts + full pipeline (wave 7) | **Eugene** |
+| **8** | task + stack pairs (gcp) | each `tasks/gcp/<task>/` with its stack; shared stacks (`minimum`, `hypercomputer-d1`) carry all their tasks in one flip-group | tasks contracts + full pipeline (wave 7) | **Richard** |
+| **8** | kind + noop tasks | `tasks/kind/cp-recovery/` + its stack; `tasks/noop/` (no stacks) | tasks contracts + full pipeline (wave 7) | **Pradeep** |
 
 > [!NOTE]
 > The **Imports (basis)** column is the verified dependency that fixes each PR's wave: a PR sits in the earliest wave after *all* its imports.
@@ -168,12 +151,12 @@ Docs, `.agents/` skills, and shared references sit *on top of* the code, so each
 | **6** | models docs | `docs/components/model_providers.md`, `docs/how-to/add-a-model-provider.md` | models | **Richard** |
 | **6** | agents docs | `docs/components/agents.md`, `docs/how-to/add-an-agent-harness.md`, `.agents/references/harness-capabilities.md` | agents (base + CLI + API + shared) | **Simran** |
 | **6** | metrics docs | `docs/components/metrics.md` | metrics (base + judge + families) | **Jessie** |
-| **10** | tasks docs | `docs/how-to/add-a-task.md`, `tasks/AGENTS.md` | tasks contracts + task data (wave 9) | **Eugene** |
+| **9** | tasks docs | `docs/how-to/add-a-task.md`, `tasks/AGENTS.md` | tasks contracts + task data (wave 8) | **Eugene** |
 | **6** | review skills | `.agents/skills/task-review/`, `.agents/skills/devops-bench-review/`, `.agents/references/permission-configs/review-readonly.*` | tasks + review targets (tasks, docs conventions) | **Jessie** |
 | **6** | cleanup skill | `.agents/skills/cleanup-orphaned-resources/` | providers + deployers + infra | **Eugene** |
-| **10** | eval-run skills + refs | `.agents/skills/{run-eval,run-parallel-evals,validate-eval,diagnose-eval-failure}/`, `.agents/references/{running-evals,monitoring-and-recovery,unlimited-mode}.md`, `.agents/references/permission-configs/{eval-infra.*,README.md}` | `cli/` + default eval harness + task data (wave 9) | **Pradeep** |
-| **10** | run + onboarding docs | `docs/how-to/run-evals.md`, `docs/components/bastion.md`, `tf/prebuilt/bastion/`, `docs/getting-started.md` | `cli/` + evalharness + infra | **Pradeep** |
-| **10** | repo overview + routers + docs-sync skill | `docs/README.md`, `docs/components/architecture.md`, `docs/components/glossary.md`, `docs/contributing.md`, `docs/appendix/known_issues.md`, `AGENTS.md`, `CLAUDE.md`, `devops_bench/AGENTS.md`, `.agents/skills/docs-sync/` | everything (ships last) | **Pradeep** |
+| **9** | eval-run skills + refs | `.agents/skills/{run-eval,run-parallel-evals,validate-eval,diagnose-eval-failure}/`, `.agents/references/{running-evals,monitoring-and-recovery,unlimited-mode}.md`, `.agents/references/permission-configs/{eval-infra.*,README.md}` | `cli/` + default eval harness + task data (wave 8) | **Pradeep** |
+| **9** | run + onboarding docs | `docs/how-to/run-evals.md`, `docs/components/bastion.md`, `tf/prebuilt/bastion/`, `docs/getting-started.md` | `cli/` + evalharness + infra | **Pradeep** |
+| **9** | repo overview + routers + docs-sync skill | `docs/README.md`, `docs/components/architecture.md`, `docs/components/glossary.md`, `docs/contributing.md`, `docs/appendix/known_issues.md`, `AGENTS.md`, `CLAUDE.md`, `devops_bench/AGENTS.md`, `.agents/skills/docs-sync/` | everything (ships last) | **Pradeep** |
 
 > [!NOTE]
 > **Never migrated (retires with `gke-labs`):** the `migration-prep` skill and `docs/migration/**` (they exist only to run this migration), plus the leaderboard assets — `site/**` (incl. `site/AGENTS.md`) and `docs/how-to/leaderboard.md`. These are kept out of the frontier and marked `NEVER_SYNC`.
