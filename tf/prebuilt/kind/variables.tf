@@ -14,3 +14,21 @@ variable "kubeconfig_path" {
   default     = "~/.kube/config"
 }
 
+variable "install_ingress_nginx" {
+  type        = bool
+  description = "Whether to install the ingress-nginx controller via tf/modules/ingress-nginx."
+  default     = false
+}
+
+variable "ingress_service_type" {
+  type        = string
+  description = "Controller Service type passed through to tf/modules/ingress-nginx."
+  default     = "ClusterIP"
+}
+
+variable "ingress_chart_version" {
+  type        = string
+  description = "ingress-nginx helm chart version passed through to tf/modules/ingress-nginx."
+  default     = "4.11.3"
+}
+
