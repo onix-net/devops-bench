@@ -26,7 +26,11 @@ env/
 .DS_Store
 Thumbs.db
 
-# Terraform & OpenTofu
-.terraform/
-tf/modules/**/.terraform.lock.hcl
-
+# OpenTofu / Terraform local state and working directories
+**/.terraform/
+**/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+crash.log
+crash.*.log
