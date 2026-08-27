@@ -177,9 +177,14 @@ def _lock_down_copied_tree(root: Path) -> None:
     once copied into the per-run scratch dir. The dropped-privilege solver
     agent runs under a plain uid with no container boundary, so a
     world-readable answer key on disk is directly reachable from its shell.
-    Locking the copy to 0700 (dirs) / 0600 (files) closes that off while
-    leaving :meth:`TFDeployer.up` and :meth:`TFDeployer.down` -- both still
-    root -- able to read it. Ownership itself is left alone: ``copytree``
+    Locking the copy to 0700 (dirs and any file that was already executable)
+    or 0600 (non-executable files) closes that off while leaving
+    :meth:`TFDeployer.up` and :meth:`TFDeployer.down` -- both still root --
+    able to read it. Files that were already executable keep the owner
+    execute bit (0700 instead of 0600) because OpenTofu's ``local-exec``
+    provisioner invokes stack scripts (e.g. ``scripts/setup.sh``) directly,
+    and the kernel refuses to exec a file with no execute bit set for
+    anyone, root included. Ownership itself is left alone: ``copytree``
     already ran as the invoking process (root, on every path that matters --
     tofu apply/destroy require it regardless of this hardening), so the copy
     is already root-owned; this only needs to narrow the mode bits an
@@ -187,7 +192,12 @@ def _lock_down_copied_tree(root: Path) -> None:
     """
     root.chmod(0o700)
     for path in root.rglob("*"):
-        path.chmod(0o700 if path.is_dir() else 0o600)
+        if path.is_dir():
+            path.chmod(0o700)
+        elif path.stat().st_mode & 0o111:
+            path.chmod(0o700)
+        else:
+            path.chmod(0o600)
 
 
 class TFDeployer(Deployer):
