@@ -92,6 +92,7 @@ _CHILD_DEADLINE_MARGIN_SEC = 0.25
 # straggler catch, not a second budget.
 _STRAGGLER_GRACE_SEC = 0.5
 
+
 def _node_name(node: Any) -> str | None:
     """Echo the optional ``name`` label from a spec node, if any."""
     return getattr(node, "name", None)

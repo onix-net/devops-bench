@@ -192,9 +192,7 @@ def _lock_down_copied_tree(root: Path) -> None:
     """
     root.chmod(0o700)
     for path in root.rglob("*"):
-        if path.is_dir():
-            path.chmod(0o700)
-        elif path.stat().st_mode & 0o111:
+        if path.is_dir() or path.stat().st_mode & 0o111:
             path.chmod(0o700)
         else:
             path.chmod(0o600)

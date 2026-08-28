@@ -517,9 +517,7 @@ def test_wrap_argv_chowns_workspace_back_when_root_fallback_used(
     on exit, or the host-side artifact collector cannot read what root wrote
     (this is the bug that silently dropped generated_files/.kube and part of
     generated_files/.gemini in production runs)."""
-    monkeypatch.setattr(
-        sandbox, "_docker_user_spec", lambda: ("0:0", True, 3998470835, 3998470835)
-    )
+    monkeypatch.setattr(sandbox, "_docker_user_spec", lambda: ("0:0", True, 3998470835, 3998470835))
     argv = sandbox.wrap_argv(
         ["gemini", "-p", "hi"],
         workspace=Path("/tmp/ws"),

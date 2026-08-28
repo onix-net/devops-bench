@@ -84,9 +84,7 @@ _OPENAI_KEY_RE = re.compile(r"sk-proj-[0-9A-Za-z_-]{20,}|sk-(?!ant-)[0-9A-Za-z]{
 _ENV_ASSIGNMENT_RE = re.compile(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*=\s*((?:(?!\\n)\S)+)")
 
 # JSON or Python-dict-repr `"NAME": "value"` / `'NAME': 'value'` shape.
-_STRUCTURED_SECRET_RE = re.compile(
-    r"""["']([A-Za-z_][A-Za-z0-9_]*)["']\s*:\s*["']([^"']*)["']"""
-)
+_STRUCTURED_SECRET_RE = re.compile(r"""["']([A-Za-z_][A-Za-z0-9_]*)["']\s*:\s*["']([^"']*)["']""")
 
 # A long, high-entropy run of base64/hex characters immediately following a
 # known "here comes a credential" marker, independent of any provider-prefix
@@ -117,9 +115,7 @@ def _is_redacted_placeholder(value: str) -> bool:
         return False
     if stripped.lower() == "<redacted>":
         return True
-    if all(char == "*" for char in stripped):
-        return True
-    return False
+    return bool(all(char == "*" for char in stripped))
 
 
 @dataclass
@@ -153,7 +149,7 @@ class ScanResult:
             return ScanStatus.MATCHED
         return ScanStatus.CLEAN
 
-    def merge(self, other: "ScanResult") -> None:
+    def merge(self, other: ScanResult) -> None:
         self.findings.extend(other.findings)
         self.unclassifiable.extend(other.unclassifiable)
 

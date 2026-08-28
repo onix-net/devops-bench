@@ -122,6 +122,7 @@ def _chown_tree(path: Path, uid: int, gid: int) -> None:
         for name in files:
             os.chown(os.path.join(root, name), uid, gid)
 
+
 # Record-level ``status`` values for a run whose agent process itself never
 # completed cleanly (crashed, exited non-zero, or timed out). Distinct from
 # "success" so a degraded run cannot be mistaken for a genuine one, and

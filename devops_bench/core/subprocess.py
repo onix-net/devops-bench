@@ -149,7 +149,7 @@ _thread_local = threading.local()
 def tag_current_thread(tag: str | None) -> None:
     """Set (or clear) a tag applied to every "running command" log line from this thread.
 
-    :class:`~devops_bench.evalharness.safeguard_monitor.SafeguardMonitor` runs
+    :class:`~devops_bench.evalharness.hold.SafeguardMonitor` runs
     its periodic sampling on its own daemon thread; without a tag, its
     ``kubectl`` calls are indistinguishable in the log from the agent's own
     activity. A thread-local flag needs no plumbing through the sampling call
@@ -341,7 +341,9 @@ def run_as_agent(
 
     rendered = " ".join(str(arg) for arg in cmd)
     tag = getattr(_thread_local, "tag", None)
-    prefix = f"running command [{tag}] as {AGENT_USER}:" if tag else f"running command as {AGENT_USER}:"
+    prefix = (
+        f"running command [{tag}] as {AGENT_USER}:" if tag else f"running command as {AGENT_USER}:"
+    )
     _log.debug("%s %s (cwd=%s)", prefix, redact(rendered), cwd or os.getcwd())
 
     if stream:

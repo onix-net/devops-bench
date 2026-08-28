@@ -854,7 +854,7 @@ def test_execute_forwards_extra_flags(monkeypatch: pytest.MonkeyPatch) -> None:
         captured["argv"] = argv
         return SimpleNamespace(stdout=SAMPLE_STREAM, stderr="", returncode=0)
 
-    monkeypatch.setattr(gemini_mod, "run", fake_run)
+    monkeypatch.setattr(gemini_mod, "run_as_agent", fake_run)
     cfg = AgentConfig(target="gemini", extra_flags=("--flag1", "--opt=val"))
     GeminiCliAgent(cfg).run("p")
     assert "--flag1" in captured["argv"]

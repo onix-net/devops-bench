@@ -199,9 +199,7 @@ def test_child_does_not_inherit_parent_stdin() -> None:
 
 
 def _fake_pwent(uid: int) -> pwd.struct_passwd:
-    return pwd.struct_passwd(
-        ("benchagent", "x", uid, uid, "", "/home/benchagent", "/bin/bash")
-    )
+    return pwd.struct_passwd(("benchagent", "x", uid, uid, "", "/home/benchagent", "/bin/bash"))
 
 
 def test_run_as_agent_passes_agent_uid_gid_to_subprocess(monkeypatch: pytest.MonkeyPatch):
@@ -243,9 +241,10 @@ def test_run_as_agent_streamed_passes_agent_uid_gid_to_popen(
         captured.update(kwargs)
         # Swap in a real, harmless command so the rest of _run_streamed's
         # pipe-pumping logic still has a live process to work with.
-        return real_popen([sys.executable, "-c", "print('hi')"], **{
-            k: v for k, v in kwargs.items() if k not in ("user", "group")
-        })
+        return real_popen(
+            [sys.executable, "-c", "print('hi')"],
+            **{k: v for k, v in kwargs.items() if k not in ("user", "group")},
+        )
 
     monkeypatch.setattr(bench_subprocess.pwd, "getpwuid", lambda uid: _fake_pwent(uid))
     monkeypatch.setattr(

@@ -894,7 +894,7 @@ def test_agy_cli_agent_execute_emits_none_tokens_when_no_source(mock_run, mock_h
 
 
 @mock.patch.object(pathlib.Path, "home")
-@mock.patch.object(devops_subprocess, "run")
+@mock.patch.object(devops_subprocess, "run_as_agent")
 def test_agy_cli_agent_forwards_extra_flags(
     mock_run: mock.MagicMock,
     mock_home: mock.MagicMock,
@@ -932,7 +932,7 @@ def test_agy_cli_agent_forwards_extra_flags(
 
 
 @mock.patch.object(pathlib.Path, "home")
-@mock.patch.object(devops_subprocess, "run")
+@mock.patch.object(devops_subprocess, "run_as_agent")
 def test_agy_cli_agent_discovers_gemini_dir_conversations_fallback(
     mock_run: mock.MagicMock,
     mock_home: mock.MagicMock,
@@ -978,7 +978,7 @@ def test_agy_cli_agent_discovers_gemini_dir_conversations_fallback(
 
 
 @mock.patch.object(pathlib.Path, "home")
-@mock.patch.object(devops_subprocess, "run")
+@mock.patch.object(devops_subprocess, "run_as_agent")
 def test_agy_cli_agent_discovers_parent_conversations_when_nested_is_empty(
     mock_run: mock.MagicMock,
     mock_home: mock.MagicMock,
