@@ -139,11 +139,20 @@ locals {
 }
 
 resource "google_container_node_pool" "primary_nodes" {
-  name       = "primary-node-pool"
-  location   = var.location
-  cluster    = google_container_cluster.primary.name
-  node_count = var.node_count
-  version    = var.kubernetes_version
+  name               = "primary-node-pool"
+  location           = var.location
+  cluster            = google_container_cluster.primary.name
+  node_count         = var.enable_autoscaling ? null : var.node_count
+  initial_node_count = var.enable_autoscaling ? var.node_count : null
+  version            = var.kubernetes_version
+
+  dynamic "autoscaling" {
+    for_each = var.enable_autoscaling ? [1] : []
+    content {
+      min_node_count = var.min_node_count
+      max_node_count = var.max_node_count
+    }
+  }
 
   node_config {
     preemptible     = false
@@ -189,4 +198,3 @@ output "endpoint" {
 output "cluster_ca_certificate" {
   value = google_container_cluster.primary.master_auth[0].cluster_ca_certificate
 }
-

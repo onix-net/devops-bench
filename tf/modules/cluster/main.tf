@@ -25,6 +25,9 @@ module "gke" {
   cluster_name             = var.cluster_name
   node_count               = var.node_count
   machine_type             = var.machine_type != "" ? var.machine_type : "e2-standard-2"
+  enable_autoscaling       = var.enable_autoscaling
+  min_node_count           = var.min_node_count
+  max_node_count           = var.max_node_count
   kubernetes_version       = var.kubernetes_version
   enable_workload_identity = var.enable_workload_identity
   agent_service_account    = var.agent_service_account

@@ -45,6 +45,24 @@ variable "machine_type" {
   default     = ""
 }
 
+variable "enable_autoscaling" {
+  type        = bool
+  description = "Enable autoscaling on the primary GKE node pool (GCP-only)"
+  default     = false
+}
+
+variable "min_node_count" {
+  type        = number
+  description = "Minimum nodes per zone when primary-pool autoscaling is enabled (GCP-only)"
+  default     = 1
+}
+
+variable "max_node_count" {
+  type        = number
+  description = "Maximum nodes per zone when primary-pool autoscaling is enabled (GCP-only)"
+  default     = 3
+}
+
 variable "gpu_type" {
   type        = string
   description = "Abstract GPU family: 'l4', 'a100', 't4', or ''"

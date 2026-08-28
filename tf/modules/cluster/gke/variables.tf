@@ -40,6 +40,34 @@ variable "machine_type" {
   default     = "e2-standard-2"
 }
 
+variable "enable_autoscaling" {
+  description = "Enable autoscaling on the primary node pool"
+  type        = bool
+  default     = false
+}
+
+variable "min_node_count" {
+  description = "Minimum nodes per zone when autoscaling is enabled"
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.min_node_count >= 0
+    error_message = "min_node_count must be non-negative."
+  }
+}
+
+variable "max_node_count" {
+  description = "Maximum nodes per zone when autoscaling is enabled"
+  type        = number
+  default     = 3
+
+  validation {
+    condition     = var.max_node_count >= var.min_node_count
+    error_message = "max_node_count must be greater than or equal to min_node_count."
+  }
+}
+
 variable "enable_workload_identity" {
   description = "Enable GKE Workload Identity"
   type        = bool
@@ -80,4 +108,3 @@ variable "gpu_count" {
   type        = number
   default     = 1
 }
-
